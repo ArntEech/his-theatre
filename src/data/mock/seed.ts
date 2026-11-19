@@ -36,7 +36,7 @@ export interface MockStore {
 
 const SEM = "sem-2026-27-1";
 
-const DRIVES = ["Genesis Drive", "Exodus Drive", "Psalms Drive", "Acts Drive"];
+export const DRIVES = ["Unashamed Voices", "His Redeemed Acts", "Anointed Reflections", "Tribe of Judah", "Divine Pulse"];
 
 const people: [string, string][] = [
   ["Kwame Asante", "0244 101 001"],
@@ -79,7 +79,7 @@ export function createSeed(): MockStore {
       memberCode: code(n),
       fullName,
       phone,
-      drive: DRIVES[idx % 4]!,
+      drive: DRIVES[idx % DRIVES.length]!,
       category: executive ? "executive" : "member",
       role: n === 1 ? "super_admin" : n === 2 || n === 3 ? "admin" : "member",
       position: n === 1 ? "Director" : n === 2 ? "Financial Secretary" : n === 3 ? "Treasurer" : null,
