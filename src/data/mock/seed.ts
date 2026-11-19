@@ -1,20 +1,44 @@
-// MOCK DATA ONLY. Imported by src/data/api.ts and nothing else.
+/**
+ * Seed data for the in-memory mock store.
+ * ONLY src/data/api.ts may import this file. Screens must go through api.ts.
+ */
 import type {
   Adjustment,
   AuditEntry,
   DuesRate,
   Expense,
   Handover,
+  IsoDate,
   Member,
+  MemberCategory,
   MemberSemester,
   OtherIncome,
   Payment,
+  PaymentMethod,
+  Position,
+  Role,
   Semester,
   SemesterWeek,
 } from "../types";
 
-export interface MockStore {
+export interface Credential {
+  pin: string | null;
+  failedAttempts: number;
+  setupCode: string | null;
+  setupCodeExpiresAt: string | null;
+}
+
+export interface OfficerLogin {
+  email: string;
+  password: string;
+  memberId: string;
+}
+
+export interface MockDb {
+  version: number;
   members: Member[];
+  credentials: Record<string, Credential>;
+  officers: OfficerLogin[];
   semesters: Semester[];
   weeks: SemesterWeek[];
   rates: DuesRate[];
@@ -25,74 +49,138 @@ export interface MockStore {
   income: OtherIncome[];
   handovers: Handover[];
   audit: AuditEntry[];
-  /** memberId -> PIN (mock only; the real server stores hashes) */
-  pins: Record<string, string>;
-  /** memberId -> one-time setup code */
-  setupCodes: Record<string, string>;
-  /** memberId -> failed PIN attempts */
-  failedAttempts: Record<string, number>;
-  officers: { memberId: string; email: string; password: string }[];
+  counters: {
+    id: number;
+    receipt: number;
+    expense: number;
+    income: number;
+    handover: number;
+    member: number;
+  };
+  session: { memberId: string | null; pendingOfficerId: string | null };
 }
 
-const SEM = "sem-2026-27-1";
+export const SEED_VERSION = 4;
 
-export const DRIVES = ["Unashamed Voices", "His Redeemed Acts", "Anointed Reflections", "Tribe of Judah", "Divine Pulse"];
+/** Demo credentials, shown on the sign-in screen in development builds only. */
+export const DEMO_PIN = "1234";
+export const DEMO_OFFICER_PASSWORD = "Theatre2026";
+export const DEMO_OFFICER_CODE = "246810";
 
-const people: [string, string][] = [
-  ["Kwame Asante", "0244 101 001"],
-  ["Abena Owusu", "0244 101 002"],
-  ["Kofi Mensah", "0244 101 003"],
-  ["Efua Boateng", "0244 101 004"],
-  ["Yaw Darko", "0244 101 005"],
-  ["Akosua Frimpong", "0244 101 006"],
-  ["Kojo Appiah", "0244 101 007"],
-  ["Ama Sarpong", "0244 101 008"],
-  ["Nana Agyeman", "0244 101 009"],
-  ["Adwoa Ofori", "0244 101 010"],
-  ["Kwabena Osei", "0244 101 011"],
-  ["Esi Quaye", "0244 101 012"],
-  ["Fiifi Annan", "0244 101 013"],
-  ["Afia Badu", "0244 101 014"],
-  ["Kwesi Tetteh", "0244 101 015"],
-  ["Yaa Antwi", "0244 101 016"],
-  ["Selorm Kpodo", "0244 101 017"],
-  ["Dzifa Amegah", "0244 101 018"],
-  ["Elikem Agbeko", "0244 101 019"],
-  ["Naa Adjeley", "0244 101 020"],
-  ["Ekow Hammond", "0244 101 021"],
-  ["Araba Mills", "0244 101 022"],
-  ["Paa Kwesi Nyarko", "0244 101 023"],
-  ["Maame Serwaa", "0244 101 024"],
-  ["Kweku Bonsu", "0244 101 025"],
+const SEM_ID = "sem-2026-27-1";
+
+type MemberSeed = [
+  name: string,
+  phone: string,
+  drive: string,
+  category: MemberCategory,
+  role: Role,
+  position: Position,
+  extra?: Partial<Member> & { startWeekNo?: number },
 ];
 
-function code(i: number) {
-  return `HIS-${String(i).padStart(3, "0")}`;
-}
+const MEMBERS: MemberSeed[] = [
+  ["Kwame Asante-Boateng", "0244 118 302", "Unashamed Voices", "executive", "super_admin", "Director"],
+  ["Abena Owusu", "0201 554 917", "His Redeemed Acts", "executive", "admin", "Financial Secretary"],
+  ["Kofi Mensah", "0547 230 668", "Anointed Reflections", "executive", "admin", "Treasurer"],
+  ["Efua Addo", "0266 410 225", "Tribe of Judah", "executive", "member", null],
+  ["Yaw Darko", "0243 902 117", "Unashamed Voices", "executive", "member", null],
+  ["Akosua Frimpong", "0559 381 046", "His Redeemed Acts", "executive", "member", null],
+  ["Nana Ama Ofori", "0208 776 513", "Anointed Reflections", "member", "member", null],
+  ["Kojo Antwi", "0246 615 890", "Tribe of Judah", "member", "member", null],
+  ["Esi Quaye", "0275 049 332", "Unashamed Voices", "member", "member", null],
+  ["Ama Serwaa Boadu", "0501 263 774", "His Redeemed Acts", "member", "member", null],
+  ["Kwabena Osei", "0249 870 451", "Anointed Reflections", "member", "member", null],
+  ["Adwoa Pokuaa", "0538 112 609", "Tribe of Judah", "member", "member", null],
+  ["Fiifi Arthur", "0204 337 186", "Divine Pulse", "member", "member", null],
+  [
+    "Maame Yaa Agyeman",
+    "0262 908 433",
+    "His Redeemed Acts",
+    "member",
+    "member",
+    null,
+    { isActive: false, leftOn: "2026-11-18" },
+  ],
+  ["Kwesi Appiah", "0245 561 720", "Divine Pulse", "member", "member", null],
+  ["Afia Nyarko", "0577 284 915", "Tribe of Judah", "member", "member", null],
+  ["Selorm Agbeko", "0209 653 078", "Unashamed Voices", "member", "member", null],
+  ["Dela Amenyo", "0548 019 362", "His Redeemed Acts", "executive", "member", null, { startWeekNo: 2 }],
+  [
+    "Yaa Asantewaa Kyei",
+    "0240 735 289",
+    "Anointed Reflections",
+    "member",
+    "member",
+    null,
+    { isLocked: true },
+  ],
+  ["Ebo Taylor-Hammond", "0268 402 951", "Divine Pulse", "member", "member", null],
+  ["Akua Donkor", "0503 816 247", "Unashamed Voices", "member", "member", null],
+  ["Elikem Tsikata", "0242 197 586", "His Redeemed Acts", "member", "member", null],
+  [
+    "Naa Dedei Lamptey",
+    "0556 640 813",
+    "Anointed Reflections",
+    "member",
+    "member",
+    null,
+    { isActivated: false },
+  ],
+  ["Kobby Ansah", "0207 925 134", "Tribe of Judah", "member", "member", null, { isActivated: false }],
+  ["Mawuli Kpodo", "0247 358 690", "Unashamed Voices", "member", "member", null],
+];
 
-export function createSeed(): MockStore {
-  const members: Member[] = people.map(([fullName, phone], idx) => {
-    const n = idx + 1;
-    const executive = n <= 5;
-    return {
-      id: `m-${String(n).padStart(3, "0")}`,
-      memberCode: code(n),
+const mid = (n: number) => `mem-${String(n).padStart(3, "0")}`;
+const at = (date: IsoDate, time: string) => new Date(`${date}T${time}:00`).toISOString();
+
+export function createSeed(today: IsoDate): MockDb {
+  const members: Member[] = [];
+  const credentials: Record<string, Credential> = {};
+  const memberSemesters: MemberSemester[] = [];
+
+  MEMBERS.forEach(([fullName, phone, drive, category, role, position, extra = {}], i) => {
+    const n = i + 1;
+    const { startWeekNo, ...memberExtra } = extra;
+    const member: Member = {
+      id: mid(n),
+      memberCode: `HIS-${String(n).padStart(3, "0")}`,
       fullName,
       phone,
-      drive: DRIVES[idx % DRIVES.length]!,
-      category: executive ? "executive" : "member",
-      role: n === 1 ? "super_admin" : n === 2 || n === 3 ? "admin" : "member",
-      position: n === 1 ? "Director" : n === 2 ? "Financial Secretary" : n === 3 ? "Treasurer" : null,
+      drive,
+      category,
+      role,
+      position,
       isActive: true,
       leftOn: null,
-      isActivated: n !== 23 && n !== 24, // HIS-023 and HIS-024 have not activated yet
-      isLocked: n === 25, // HIS-025 is locked out
+      isActivated: true,
+      isLocked: false,
+      ...memberExtra,
     };
+    members.push(member);
+    credentials[member.id] = {
+      pin: member.isActivated ? DEMO_PIN : null,
+      failedAttempts: member.isLocked ? 5 : 0,
+      setupCode: n === 23 ? "482913" : null,
+      setupCodeExpiresAt: n === 23 ? at("2027-01-31", "23:59") : null,
+    };
+    memberSemesters.push({
+      memberId: member.id,
+      semesterId: SEM_ID,
+      category,
+      // Executives start week 1; members start week 2 (16 Nov).
+      startWeekNo: startWeekNo ?? (category === "executive" ? 1 : 2),
+    });
   });
-  const id = (n: number) => members[n - 1]!.id;
 
   const semesters: Semester[] = [
-    { id: SEM, name: "2026/27 Sem 1", startsOn: "2026-11-09", endsOn: "2027-01-10", isClosed: false },
+    {
+      id: SEM_ID,
+      name: "2026/27 Sem 1",
+      startsOn: "2026-11-09",
+      endsOn: "2027-01-10",
+      isClosed: false,
+    },
   ];
 
   const mondays = [
@@ -110,7 +198,7 @@ export function createSeed(): MockStore {
     const interim = weekStart === "2026-11-23" || weekStart === "2026-11-30";
     return {
       id: `wk-${i + 1}`,
-      semesterId: SEM,
+      semesterId: SEM_ID,
       weekNo: i + 1,
       weekStart,
       counts: !interim,
@@ -119,83 +207,81 @@ export function createSeed(): MockStore {
   });
 
   const rates: DuesRate[] = [
-    { semesterId: SEM, category: "executive", weeklyAmount: 1000 },
-    { semesterId: SEM, category: "member", weeklyAmount: 500 },
+    { semesterId: SEM_ID, category: "executive", weeklyAmount: 1000 },
+    { semesterId: SEM_ID, category: "member", weeklyAmount: 500 },
   ];
 
-  const memberSemesters: MemberSemester[] = members.map((m) => ({
-    memberId: m.id,
-    semesterId: SEM,
-    category: m.category,
-    startWeekNo: m.category === "executive" ? 1 : 2,
-  }));
-
-  const fs = id(2);
-  let r = 0;
   const payments: Payment[] = [];
-  const p = (
-    n: number,
+  let receipt = 0;
+  const addPayment = (
+    date: IsoDate,
+    time: string,
+    member: number,
     amount: number,
-    method: "cash" | "momo",
-    paidOn: string,
+    method: PaymentMethod,
+    recordedBy: number,
     extra: Partial<Payment> = {},
   ) => {
-    r += 1;
-    const payment: Payment = {
-      id: `pay-${r}`,
-      receiptNo: `R-${String(r).padStart(4, "0")}`,
-      memberId: id(n),
-      semesterId: SEM,
+    receipt += 1;
+    const p: Payment = {
+      id: `pay-${receipt}`,
+      receiptNo: `R-${String(receipt).padStart(4, "0")}`,
+      memberId: mid(member),
+      semesterId: SEM_ID,
       amount,
       method,
-      ...(method === "momo" ? { momoReference: `MP2611${String(1000 + r)}` } : {}),
-      paidOn,
-      idempotencyKey: `seed-${r}`,
-      recordedBy: fs,
-      createdAt: `${paidOn}T${String(9 + (r % 8)).padStart(2, "0")}:${String((r * 7) % 60).padStart(2, "0")}:00.000Z`,
+      paidOn: date,
+      idempotencyKey: `seed-${receipt}`,
+      recordedBy: mid(recordedBy),
+      createdAt: at(date, time),
       ...extra,
     };
-    payments.push(payment);
-    return payment;
+    payments.push(p);
+    return p;
   };
 
-  // Executives (GH₵10/week, 2 weeks due by 19 Nov)
-  p(1, 2000, "cash", "2026-11-10"); // Director: paid up
-  p(2, 3000, "momo", "2026-11-11"); // Fin Sec: paid ahead
-  p(3, 1000, "cash", "2026-11-10"); // Treasurer: behind 1 week
-  p(4, 2000, "cash", "2026-11-12"); // Efua: paid up…
-  const wrong = p(4, 1000, "cash", "2026-11-12", { note: "Entered twice by mistake" });
-  p(4, -1000, "cash", "2026-11-12", {
-    reversesPaymentId: wrong.id,
-    note: "Reversal: duplicate entry",
-  }); // …with one reversed payment
-  // Yaw (HIS-005): nothing yet — behind 2 weeks
-
-  // Members (GH₵5/week, 1 week due by 19 Nov)
-  p(6, 500, "cash", "2026-11-16");
-  p(7, 500, "momo", "2026-11-17");
-  p(8, 1500, "momo", "2026-11-16"); // paid ahead
-  p(9, 500, "cash", "2026-11-18");
-  p(11, 500, "cash", "2026-11-16");
-  p(12, 2500, "cash", "2026-11-17"); // paid ahead
-  p(14, 500, "momo", "2026-11-18");
-  p(15, 500, "cash", "2026-11-19");
-  p(17, 1000, "cash", "2026-11-19"); // paid ahead
-  p(18, 500, "momo", "2026-11-19");
-  p(20, 500, "cash", "2026-11-16");
-  p(21, 250, "cash", "2026-11-17", { note: "Part payment" }); // behind (part)
-  p(25, 500, "cash", "2026-11-16");
-  // 10, 13, 16, 19, 22, 23, 24 have not paid — behind
+  addPayment("2026-11-09", "18:05", 1, 7000, "momo", 3, {
+    momoReference: "61109184417",
+    note: "Full semester",
+  });
+  addPayment("2026-11-09", "18:20", 2, 1000, "cash", 3);
+  addPayment("2026-11-10", "17:45", 4, 1000, "cash", 2);
+  addPayment("2026-11-10", "17:52", 6, 4000, "momo", 2, { momoReference: "61110175203" });
+  addPayment("2026-11-11", "18:10", 3, 1000, "cash", 2);
+  addPayment("2026-11-12", "17:30", 8, 3000, "momo", 2, {
+    momoReference: "61112173011",
+    note: "Whole semester",
+  });
+  addPayment("2026-11-12", "17:41", 10, 1500, "cash", 2);
+  const mistaken = addPayment("2026-11-16", "17:35", 11, 500, "cash", 2);
+  addPayment("2026-11-16", "17:58", 11, -500, "cash", 2, {
+    reversesPaymentId: mistaken.id,
+    note: "Recorded against the wrong member. It was Adwoa Pokuaa (HIS-012).",
+    idempotencyKey: `reverse:${mistaken.id}`,
+  });
+  addPayment("2026-11-16", "18:00", 12, 500, "cash", 2);
+  addPayment("2026-11-16", "18:06", 4, 1000, "cash", 2);
+  addPayment("2026-11-16", "18:15", 2, 1000, "cash", 3);
+  addPayment("2026-11-17", "17:40", 14, 500, "cash", 2);
+  addPayment("2026-11-17", "17:48", 18, 1000, "momo", 2, { momoReference: "61117174822" });
+  addPayment("2026-11-17", "17:55", 20, 500, "cash", 2);
+  addPayment("2026-11-18", "17:33", 22, 1500, "momo", 2, { momoReference: "61118173390" });
+  addPayment("2026-11-18", "17:44", 23, 500, "cash", 2, { note: "Paid before activating the app" });
+  addPayment("2026-11-18", "17:50", 17, 500, "cash", 2);
+  // Today's takings, so the Today screen always has something on it.
+  addPayment(today, "17:32", 25, 500, "cash", 2);
+  addPayment(today, "17:40", 16, 1000, "momo", 2, { momoReference: "61119174015" });
+  addPayment(today, "17:47", 7, 500, "cash", 2);
 
   const adjustments: Adjustment[] = [
     {
       id: "adj-1",
-      memberId: id(13),
-      semesterId: SEM,
-      amount: -500,
-      reason: "Waiver: away on church mission week of 16 Nov",
-      recordedBy: fs,
-      createdAt: "2026-11-16T12:00:00.000Z",
+      memberId: mid(13),
+      semesterId: SEM_ID,
+      amount: -1500,
+      reason: "Hardship waiver for three weeks, approved by the Director",
+      recordedBy: mid(1),
+      createdAt: at("2026-11-12", "19:00"),
     },
   ];
 
@@ -203,27 +289,27 @@ export function createSeed(): MockStore {
     {
       id: "exp-1",
       ref: "E-0001",
-      description: "Fabric for Esther costumes",
-      category: "Costumes & props",
-      amount: 4500,
+      description: "Fabric and thread for Christmas production costumes",
+      category: "Costumes",
+      amount: 3500,
       paidBy: "Kofi Mensah",
-      approvedBy: "Kwame Asante",
-      receiptRef: "Makola #2231",
+      approvedBy: "Kwame Asante-Boateng",
+      receiptRef: "Makola 4471",
       date: "2026-11-14",
-      recordedBy: id(3),
-      createdAt: "2026-11-14T15:20:00.000Z",
+      recordedBy: mid(3),
+      createdAt: at("2026-11-14", "13:20"),
     },
     {
       id: "exp-2",
       ref: "E-0002",
-      description: "Trotro fares to Sunday outreach",
+      description: "Trotro fares to the Saturday rehearsal venue",
       category: "Transport",
-      amount: 1250,
+      amount: 1200,
       paidBy: "Kofi Mensah",
-      approvedBy: "Kwame Asante",
+      approvedBy: "Kwame Asante-Boateng",
       date: "2026-11-17",
-      recordedBy: id(3),
-      createdAt: "2026-11-17T18:05:00.000Z",
+      recordedBy: mid(3),
+      createdAt: at("2026-11-17", "20:10"),
     },
   ];
 
@@ -232,12 +318,12 @@ export function createSeed(): MockStore {
       id: "inc-1",
       ref: "I-0001",
       source: "donation",
-      description: "Donation from Elder Ansah for the Christmas production",
+      description: "Gift from the Mensah family towards the Christmas production",
       amount: 20000,
       method: "momo",
-      date: "2026-11-15",
-      recordedBy: fs,
-      createdAt: "2026-11-15T11:00:00.000Z",
+      date: "2026-11-14",
+      recordedBy: mid(3),
+      createdAt: at("2026-11-14", "11:05"),
     },
   ];
 
@@ -245,40 +331,106 @@ export function createSeed(): MockStore {
     {
       id: "ho-1",
       ref: "H-0001",
-      fromMemberId: fs,
-      toMemberId: id(3),
+      fromMemberId: mid(2),
+      toMemberId: mid(3),
       amount: 5000,
-      recordedAt: "2026-11-18T19:30:00.000Z",
+      recordedAt: at("2026-11-13", "19:30"),
+      confirmedAt: at("2026-11-13", "19:42"),
+    },
+    {
+      id: "ho-2",
+      ref: "H-0002",
+      fromMemberId: mid(2),
+      toMemberId: mid(3),
+      amount: 2500,
+      recordedAt: at("2026-11-18", "19:15"),
       confirmedAt: null,
     },
   ];
 
-  const audit: AuditEntry[] = [
-    {
-      id: "aud-1",
-      actorName: "Abena Owusu",
-      actorPosition: "Financial Secretary",
-      action: "create",
-      table: "handovers",
-      summary: "Handed over GH₵50 to Kofi Mensah (H-0001)",
-      createdAt: "2026-11-18T19:30:00.000Z",
-    },
-    {
-      id: "aud-2",
-      actorName: "Abena Owusu",
-      actorPosition: "Financial Secretary",
-      action: "reverse",
-      table: "payments",
-      summary: "Reversed R-0005 for Efua Boateng: duplicate entry",
-      createdAt: "2026-11-12T10:00:00.000Z",
-    },
-  ];
-
-  const pins: Record<string, string> = {};
-  for (const m of members) if (m.isActivated) pins[m.id] = "1234";
+  const byId = new Map(members.map((m) => [m.id, m]));
+  const audit: AuditEntry[] = [];
+  let auditSeq = 0;
+  const log = (
+    actorId: string,
+    action: string,
+    table: string,
+    summary: string,
+    createdAt: string,
+  ) => {
+    const actor = byId.get(actorId)!;
+    auditSeq += 1;
+    audit.push({
+      id: `aud-${auditSeq}`,
+      actorName: actor.fullName,
+      actorPosition: actor.position,
+      action,
+      table,
+      summary,
+      createdAt,
+    });
+  };
+  for (const p of payments) {
+    const m = byId.get(p.memberId)!;
+    if (p.reversesPaymentId) {
+      const original = payments.find((o) => o.id === p.reversesPaymentId)!;
+      log(
+        p.recordedBy,
+        "Voided payment",
+        "payments",
+        `${p.receiptNo} reverses ${original.receiptNo} for ${m.fullName}. Reason: ${p.note}`,
+        p.createdAt,
+      );
+    } else {
+      log(
+        p.recordedBy,
+        "Recorded payment",
+        "payments",
+        `${p.receiptNo} · ${m.fullName} · ${(p.amount / 100).toFixed(2)} cedis ${p.method === "momo" ? "MoMo" : "cash"}`,
+        p.createdAt,
+      );
+    }
+  }
+  for (const a of adjustments)
+    log(
+      a.recordedBy,
+      "Added adjustment",
+      "adjustments",
+      `${byId.get(a.memberId)!.fullName}: waiver of ${(-a.amount / 100).toFixed(2)} cedis. ${a.reason}`,
+      a.createdAt,
+    );
+  for (const e of expenses)
+    log(e.recordedBy, "Recorded expense", "expenses", `${e.ref} · ${e.description}`, e.createdAt);
+  for (const i of income)
+    log(
+      i.recordedBy,
+      "Recorded income",
+      "other_income",
+      `${i.ref} · ${i.description}`,
+      i.createdAt,
+    );
+  for (const h of handovers) {
+    log(
+      h.fromMemberId,
+      "Recorded handover",
+      "handovers",
+      `${h.ref} · ${(h.amount / 100).toFixed(2)} cedis to the Treasurer`,
+      h.recordedAt,
+    );
+    if (h.confirmedAt)
+      log(h.toMemberId, "Confirmed handover", "handovers", `${h.ref} received`, h.confirmedAt);
+  }
+  audit.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   return {
+    version: SEED_VERSION,
     members,
+    credentials,
+    officers: [
+      { email: "director@histheatre.org", password: DEMO_OFFICER_PASSWORD, memberId: mid(1) },
+      { email: "finsec@histheatre.org", password: DEMO_OFFICER_PASSWORD, memberId: mid(2) },
+      { email: "treasurer@histheatre.org", password: DEMO_OFFICER_PASSWORD, memberId: mid(3) },
+    ],
     semesters,
     weeks,
     rates,
@@ -289,21 +441,7 @@ export function createSeed(): MockStore {
     income,
     handovers,
     audit,
-    pins,
-    setupCodes: { [id(23)]: "482913", [id(24)]: "771205" },
-    failedAttempts: {},
-    officers: [
-      { memberId: id(1), email: "director@histheatre.org", password: "theatre123" },
-      { memberId: id(2), email: "finsec@histheatre.org", password: "theatre123" },
-      { memberId: id(3), email: "treasurer@histheatre.org", password: "theatre123" },
-    ],
+    counters: { id: 1000, receipt, expense: 2, income: 1, handover: 2, member: MEMBERS.length },
+    session: { memberId: null, pendingOfficerId: null },
   };
 }
-
-/** Mock-only sign-in hints shown on the sign-in screen in development builds. */
-export const MOCK_HINTS = {
-  memberPin: "1234",
-  officerPassword: "theatre123",
-  officerCode: "123456",
-  setupCodes: "HIS-023 → 482913, HIS-024 → 771205",
-};

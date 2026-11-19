@@ -1,74 +1,98 @@
 // LIVE IMPLEMENTATION: the real His Theatre data, in Supabase.
 //
-// Same functions, same shapes as api.mock.ts. The screens can't tell which one they use.
-// Security does NOT live here: the database's own rules decide who may read or change what
-// (see supabase/migrations/0001_his_theatre.sql). This file only asks politely and turns the
-// database's answers into the app's shapes and friendly messages.
-//
-// Money is always integer pesewas.
+// Same functions and shapes as api.mock.ts, so screens can't tell which one they use.
+// Security does NOT live here. The database's own rules decide who may read or change what
+// (supabase/migrations/0001_his_theatre.sql): officer powers need the authenticator code,
+// money rows can't be edited or deleted, handovers go only from the Financial Secretary to
+// the Treasurer, and so on. This file asks, then turns answers into the app's shapes and
+// friendly words. Money is always integer pesewas.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-
-import { addDays, todayISO } from "@/lib/dates";
-import { DRIVES } from "@/lib/drives";
-import { calculateDues, duesStatus } from "@/lib/dues";
+import { addDays, localToday, mondayOf } from "@/lib/dates";
 import { normalizeMemberCode } from "@/lib/member-code";
-import { ApiError } from "./errors";
-import type {
-  Adjustment,
-  AdjustmentInput,
-  AuditEntry,
-  AuditFilters,
-  CashPosition,
-  Dashboard,
-  DuesRate,
-  DuesSummary,
-  Expense,
-  ExpenseInput,
-  Handover,
-  HandoverInput,
-  IncomeInput,
-  IncomeSource,
-  ISODate,
-  Member,
-  MemberCategory,
-  MemberFilters,
-  MemberRole,
-  MemberSemester,
-  MemberWithDues,
-  NewMemberInput,
-  OfficerPosition,
-  OfficerSignInResult,
-  OtherIncome,
-  Payment,
-  PreviewRole,
-  ReceiptView,
-  RecordPaymentInput,
-  Report,
-  Semester,
-  SemesterInput,
-  SemesterWeek,
-  TodaySummary,
-  UpdateMemberInput,
+import { isWeakPin, WEAK_PIN_MESSAGE } from "@/lib/pin";
+import {
+  byNewest,
+  cashPosition,
+  currentSemesterRecord,
+  dashboard,
+  duesFor,
+  expenseRow,
+  handoverRow,
+  incomeRow,
+  listItem,
+  paymentRow,
+  report,
+  semesterDetail,
+  todayReport,
+  weeksOf,
+  adjustmentRow,
+  type Snapshot,
+} from "./derive";
+import {
+  ApiError,
+  type Adjustment,
+  type AdjustmentInput,
+  type AdjustmentRow,
+  type AuditEntry,
+  type AuditFilters,
+  type CashPosition,
+  type Dashboard,
+  type DuesRate,
+  type Expense,
+  type ExpenseInput,
+  type ExpenseRow,
+  type Handover,
+  type HandoverInput,
+  type HandoverRow,
+  type IncomeInput,
+  type IncomeRow,
+  type IsoDate,
+  type Member,
+  type MemberDetail,
+  type MemberFilters,
+  type MemberListItem,
+  type MemberSemester,
+  type MemberUpdate,
+  type MyDues,
+  type NewMemberInput,
+  type OfficerChallenge,
+  type OtherIncome,
+  type Payment,
+  type PaymentRow,
+  type Position,
+  type RatesInput,
+  type RecordPaymentInput,
+  type Report,
+  type Role,
+  type Semester,
+  type SemesterDetail,
+  type SemesterInput,
+  type SemesterWeek,
+  type Session,
+  type SetupCodeResult,
+  type TodayReport,
 } from "./types";
 
-export { ApiError };
-export const IS_MOCK = false;
-
-// ---------------------------------------------------------------------------
-// Connection
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/* Connection                                                           */
+/* ------------------------------------------------------------------ */
 
 let client: SupabaseClient | null = null;
 
-/** The Supabase connection. Uses only the public (publishable) key; never a secret key. */
+/** The Supabase connection. Uses only the public (publishable) key, never a secret key. */
 function sb(): SupabaseClient {
   if (!client) {
-    const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-    const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
     if (!url || !key) throw new ApiError("The app isn't connected to its database yet.");
     client = createClient(url, key, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: "his-theatre-auth" },
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+        storageKey: "his-theatre-auth",
+      },
     });
   }
   return client;
@@ -76,48 +100,61 @@ function sb(): SupabaseClient {
 
 type DbError = { message: string; code?: string } | null;
 
-/** Database messages → words for people. Rule messages written in the database pass through as they are. */
-function friendly(message: string): string {
-  if (/row-level security|permission denied/i.test(message)) {
-    return "You don't have permission to do that. Officers: sign out and sign in again with your authenticator code.";
-  }
-  if (/JWT|not authenticated|session/i.test(message)) return "Your session has ended. Please sign in again.";
-  if (/Failed to fetch|NetworkError|network|fetch failed/i.test(message)) {
-    return "No connection. Check your internet and try again.";
-  }
-  if (/violates check constraint|invalid input/i.test(message)) return "Some details aren't valid. Check the form and try again.";
-  if (/PGRST116|0 rows|multiple \(or no\) rows/i.test(message)) return "That record wasn't found, or you can't change it.";
-  return message;
+/** Database answers → words for people, with a code the screens can act on. */
+function toApiError(error: DbError): ApiError {
+  const message = error?.message ?? "";
+  if (/Failed to fetch|NetworkError|network|fetch failed|Load failed/i.test(message))
+    return new ApiError("No connection. Check your internet and try again.", "offline");
+  if (/JWT|not authenticated|Auth session missing|refresh token/i.test(message))
+    return new ApiError("Please sign in again.", "unauthenticated");
+  if (/row-level security|permission denied/i.test(message))
+    return new ApiError(
+      "You don't have permission to do that. Officers: sign out, then sign in again with your authenticator code.",
+      "forbidden",
+    );
+  if (/Only the Director|Only officers/i.test(message)) return new ApiError(message, "forbidden");
+  if (/semester is closed/i.test(message))
+    return new ApiError(
+      "This semester is closed. Money can no longer be recorded against it.",
+      "closed",
+    );
+  if (error?.code === "23505" || /duplicate key/i.test(message))
+    return new ApiError("That's already been recorded.", "duplicate");
+  if (/violates check constraint|invalid input|value too long/i.test(message))
+    return new ApiError("Some details aren't valid. Check the form and try again.", "invalid");
+  if (/PGRST116|0 rows|multiple \(or no\) rows/i.test(message))
+    return new ApiError("That record wasn't found, or you can't change it.", "not_found");
+  // Messages written in the database's own rules are already plain English.
+  return new ApiError(message || "Something went wrong. Please try again.");
 }
-
-function fail(error: DbError): never {
-  throw new ApiError(friendly(error?.message ?? "Something went wrong. Please try again."));
-}
-
-// Rows from the database are loosely typed; the to*() mappers below give them the app's shapes.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function run<T = any>(query: PromiseLike<{ data: unknown; error: DbError }>): Promise<T> {
-  const { data, error } = await query;
-  if (error) fail(error);
-  return data as T;
-}
-
-function assertAmount(amount: number) {
-  if (!Number.isInteger(amount) || amount <= 0) throw new ApiError("Enter an amount greater than zero.");
-}
-function assertReason(reason: string) {
-  if (!reason || reason.trim().length < 3) throw new ApiError("Please give a reason.");
-}
-function newKey(): string {
-  return crypto.randomUUID();
-}
-
-// ---------------------------------------------------------------------------
-// Row → app shapes
-// ---------------------------------------------------------------------------
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;
+
+async function run<T = any>(query: PromiseLike<{ data: unknown; error: DbError }>): Promise<T> {
+  const { data, error } = await query;
+  if (error) throw toApiError(error);
+  return data as T;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const PAGE = 1000;
+
+/** Reads every row the person may see, a page at a time (the server sends at most 1000). */
+async function all(table: string, orderBy: string[]): Promise<Row[]> {
+  const out: Row[] = [];
+  for (let from = 0; ; from += PAGE) {
+    let q = sb().from(table).select("*");
+    for (const col of orderBy) q = q.order(col);
+    const rows = await run<Row[]>(q.range(from, from + PAGE - 1));
+    out.push(...rows);
+    if (rows.length < PAGE) return out;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Rows → app shapes                                                    */
+/* ------------------------------------------------------------------ */
 
 const toMember = (r: Row): Member => ({
   id: r.id,
@@ -125,13 +162,13 @@ const toMember = (r: Row): Member => ({
   fullName: r.full_name,
   phone: r.phone ?? "",
   drive: r.drive ?? "",
-  category: r.category,
+  category: r.category ?? "member",
   role: r.role,
-  position: r.position ?? null,
-  isActive: r.is_active,
+  position: (r.position ?? null) as Position,
+  isActive: r.is_active ?? true,
   leftOn: r.left_on ?? null,
-  isActivated: r.is_activated,
-  isLocked: r.is_locked,
+  isActivated: r.is_activated ?? true,
+  isLocked: r.is_locked ?? false,
 });
 const toSemester = (r: Row): Semester => ({
   id: r.id,
@@ -148,7 +185,11 @@ const toWeek = (r: Row): SemesterWeek => ({
   counts: r.counts,
   ...(r.label ? { label: r.label as string } : {}),
 });
-const toRate = (r: Row): DuesRate => ({ semesterId: r.semester_id, category: r.category, weeklyAmount: r.weekly_amount });
+const toRate = (r: Row): DuesRate => ({
+  semesterId: r.semester_id,
+  category: r.category,
+  weeklyAmount: r.weekly_amount,
+});
 const toMemberSemester = (r: Row): MemberSemester => ({
   memberId: r.member_id,
   semesterId: r.semester_id,
@@ -217,15 +258,18 @@ const toHandover = (r: Row): Handover => ({
 const toAudit = (r: Row): AuditEntry => ({
   id: String(r.id),
   actorName: r.actor_name,
-  actorPosition: r.actor_position,
+  actorPosition: (r.actor_position || null) as Position,
   action: r.action,
   table: r.table_name,
   summary: r.summary,
   createdAt: r.created_at,
 });
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
-/** Reads the "aal" claim: "aal2" means the authenticator-code check was passed in this session. */
+/* ------------------------------------------------------------------ */
+/* Who is signed in, and what they can see                              */
+/* ------------------------------------------------------------------ */
+
+/** Reads the "aal" claim: "aal2" means the authenticator code was passed in this session. */
 function aalOf(accessToken: string): string {
   try {
     const payload = accessToken.split(".")[1] ?? "";
@@ -236,372 +280,490 @@ function aalOf(accessToken: string): string {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Signing in
-// ---------------------------------------------------------------------------
+const isAdmin = (m: Member) => m.role === "admin" || m.role === "super_admin";
+const today = () => localToday();
 
 export async function getCurrentMember(): Promise<Member | null> {
   const {
     data: { session },
   } = await sb().auth.getSession();
   if (!session) return null;
-  const { data: row, error } = await sb().from("members").select("*").eq("auth_user_id", session.user.id).maybeSingle();
-  if (error || !row || !row.is_active) return null;
+  const { data: row, error } = await sb()
+    .from("members")
+    .select("*")
+    .eq("auth_user_id", session.user.id)
+    .maybeSingle();
+  if (error) throw toApiError(error);
+  if (!row || !row.is_active) return null;
   const member = toMember(row);
-  // Officer powers only count after the authenticator code. Otherwise show the member view
+  // Officer powers count only after the authenticator code. Until then, show the member view
   // (the database refuses officer actions anyway).
-  if (member.role !== "member" && aalOf(session.access_token) !== "aal2") {
+  if (isAdmin(member) && aalOf(session.access_token) !== "aal2") {
     return { ...member, role: "member", position: null };
   }
   return member;
 }
 
-async function me(): Promise<Member> {
-  const member = await getCurrentMember();
-  if (!member) throw new ApiError("Please sign in again.");
+interface Context {
+  me: Member;
+  s: Snapshot;
+}
+
+/** Many screens ask at once after a change; one load answers them all for a moment. */
+const FRESH_MS = 2500;
+let cache: { at: number; value: Promise<Context> } | null = null;
+
+function changed() {
+  cache = null;
+}
+
+async function load(): Promise<Context> {
+  if (cache && Date.now() - cache.at < FRESH_MS) return cache.value;
+  const value = loadNow();
+  cache = { at: Date.now(), value };
+  value.catch(() => {
+    if (cache?.value === value) cache = null;
+  });
+  return value;
+}
+
+async function loadNow(): Promise<Context> {
+  const me = await getCurrentMember();
+  if (!me) throw new ApiError("Please sign in again.", "unauthenticated");
+  const officer = isAdmin(me);
+  const none = Promise.resolve([] as Row[]);
+  const [members, officers, semesters, weeks, rates, ms, adjustments, payments, expenses, income, handovers] =
+    await Promise.all([
+      officer ? all("members", ["member_code"]) : Promise.resolve([] as Row[]),
+      run<Row[]>(sb().rpc("list_officers")),
+      all("semesters", ["starts_on", "id"]),
+      all("semester_weeks", ["semester_id", "week_no"]),
+      all("dues_rates", ["semester_id", "category"]),
+      all("member_semesters", ["semester_id", "member_id"]),
+      all("adjustments", ["id"]),
+      all("payments", ["id"]),
+      officer ? all("expenses", ["id"]) : none,
+      officer ? all("other_income", ["id"]) : none,
+      officer ? all("handovers", ["id"]) : none,
+    ]);
+
+  // Members see only themselves; officer names come from the short public list.
+  const people = officer ? members.map(toMember) : [me];
+  for (const o of officers) {
+    if (!people.some((p) => p.id === o.id)) people.push(toMember(o));
+  }
+  return {
+    me,
+    s: {
+      members: people,
+      semesters: semesters.map(toSemester),
+      weeks: weeks.map(toWeek),
+      rates: rates.map(toRate),
+      memberSemesters: ms.map(toMemberSemester),
+      adjustments: adjustments.map(toAdjustment),
+      payments: payments.map(toPayment),
+      expenses: expenses.map(toExpense),
+      income: income.map(toIncome),
+      handovers: handovers.map(toHandover),
+    },
+  };
+}
+
+async function asAdmin(): Promise<Context> {
+  const ctx = await load();
+  if (!isAdmin(ctx.me)) throw new ApiError("You don't have access to this page.", "forbidden");
+  return ctx;
+}
+
+async function asSuperAdmin(): Promise<Context> {
+  const ctx = await load();
+  if (ctx.me.role !== "super_admin")
+    throw new ApiError("Only the Director can do this.", "forbidden");
+  return ctx;
+}
+
+/* ------------------------------------------------------------------ */
+/* Checks that give clear messages before the database is asked         */
+/* ------------------------------------------------------------------ */
+
+function requireText(value: string | undefined, label: string, min = 3, max = 200): string {
+  const text = (value ?? "").trim();
+  if (text.length < min) throw new ApiError(`${label} is required.`, "invalid");
+  if (text.length > max) throw new ApiError(`${label} is too long (${max} letters at most).`, "invalid");
+  return text;
+}
+
+function requirePositiveAmount(amount: number) {
+  if (!Number.isSafeInteger(amount) || amount <= 0)
+    throw new ApiError("Enter an amount greater than zero.", "invalid");
+}
+
+function findSemester(s: Snapshot, id: string): Semester {
+  const semester = s.semesters.find((x) => x.id === id);
+  if (!semester) throw new ApiError("That semester could not be found.", "not_found");
+  return semester;
+}
+
+function requireOpenSemester(s: Snapshot, id: string): Semester {
+  const semester = findSemester(s, id);
+  if (semester.isClosed)
+    throw new ApiError(
+      `${semester.name} is closed. Money can no longer be recorded against it.`,
+      "closed",
+    );
+  return semester;
+}
+
+function findMember(s: Snapshot, id: string): Member {
+  const member = s.members.find((m) => m.id === id);
+  if (!member) throw new ApiError("That member could not be found.", "not_found");
   return member;
 }
 
-async function pinAuth(body: Record<string, string>): Promise<Member> {
+function validatePin(pin: string) {
+  if (!/^\d{4}$/.test(pin)) throw new ApiError("Your PIN must be exactly 4 digits.", "invalid");
+  if (isWeakPin(pin)) throw new ApiError(WEAK_PIN_MESSAGE, "weak_pin");
+}
+
+function notInFuture(date: IsoDate, what: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new ApiError("Choose a date.", "invalid");
+  if (date > today()) throw new ApiError(`${what} cannot be in the future.`, "invalid");
+}
+
+/* ------------------------------------------------------------------ */
+/* Signing in                                                           */
+/* ------------------------------------------------------------------ */
+
+async function pinAuth(body: Record<string, string>): Promise<Session> {
+  changed();
   await sb().auth.signOut({ scope: "local" });
   const { data, error } = await sb().functions.invoke("pin-auth", { body });
-  if (error) throw new ApiError("Sign-in isn't working right now. Please try again in a minute.");
-  if (!data?.ok) throw new ApiError(data?.error ?? "That member ID or PIN isn't right.");
+  if (error && !data)
+    throw new ApiError("Sign-in isn't working right now. Please try again in a minute.");
+  if (!data?.ok) throw new ApiError(data?.error ?? "That member ID or PIN isn't right.", "wrong_pin");
   const { error: sessionError } = await sb().auth.setSession({
     access_token: data.access_token,
     refresh_token: data.refresh_token,
   });
-  if (sessionError) throw new ApiError("Sign-in isn't working right now. Please try again in a minute.");
-  return me();
+  if (sessionError)
+    throw new ApiError("Sign-in isn't working right now. Please try again in a minute.");
+  const member = await getCurrentMember();
+  if (!member) throw new ApiError("This membership is no longer active.", "inactive");
+  return { member };
 }
 
-export async function signInMember(memberCode: string, pin: string): Promise<Member> {
+export async function signInMember(memberCode: string, pin: string): Promise<Session> {
+  if (!pin) throw new ApiError("Enter your PIN.", "invalid");
   return pinAuth({ action: "login", memberCode: normalizeMemberCode(memberCode), pin });
 }
 
-export async function activateMember(memberCode: string, setupCode: string, newPin: string): Promise<Member> {
-  return pinAuth({ action: "activate", memberCode: normalizeMemberCode(memberCode), setupCode, pin: newPin });
+export async function activateMember(
+  memberCode: string,
+  setupCode: string,
+  newPin: string,
+): Promise<Session> {
+  validatePin(newPin);
+  return pinAuth({
+    action: "activate",
+    memberCode: normalizeMemberCode(memberCode),
+    setupCode: setupCode.trim(),
+    pin: newPin,
+  });
 }
 
 let pendingFactorId: string | null = null;
 
-export async function signInOfficer(email: string, password: string): Promise<OfficerSignInResult> {
+export async function signInOfficer(email: string, password: string): Promise<OfficerChallenge> {
+  changed();
   pendingFactorId = null;
   const { data, error } = await sb().auth.signInWithPassword({ email: email.trim(), password });
-  if (error || !data.user) throw new ApiError("That email or password isn't right.");
-
-  const { data: row } = await sb().from("members").select("role, is_active").eq("auth_user_id", data.user.id).maybeSingle();
+  if (error || !data.user) {
+    if (error && /fetch|network/i.test(error.message)) throw toApiError(error);
+    throw new ApiError("That email and password do not match.", "invalid_credentials");
+  }
+  const { data: row } = await sb()
+    .from("members")
+    .select("role, is_active")
+    .eq("auth_user_id", data.user.id)
+    .maybeSingle();
   if (!row || !row.is_active || row.role === "member") {
     await sb().auth.signOut({ scope: "local" });
-    throw new ApiError("This account isn't set up as an officer. Ask the Director.");
+    throw new ApiError("This account isn't set up as an officer. Ask the Director.", "inactive");
   }
 
   const { data: factors, error: factorError } = await sb().auth.mfa.listFactors();
-  if (factorError) fail(factorError);
+  if (factorError) throw toApiError(factorError);
   const verified = factors.totp.find((f) => f.status === "verified");
   if (verified) {
     pendingFactorId = verified.id;
-    return { needsCode: true, hint: "Open your authenticator app and enter the 6-digit code for His Theatre." };
+    return {};
   }
 
   // First officer sign-in: set up the authenticator app. Clear any half-finished attempt first.
   for (const f of factors.all.filter((x) => x.status !== "verified")) {
     await sb().auth.mfa.unenroll({ factorId: f.id });
   }
-  const { data: enrolled, error: enrollError } = await sb().auth.mfa.enroll({ factorType: "totp", friendlyName: "His Theatre" });
-  if (enrollError || !enrolled) fail(enrollError);
+  const { data: enrolled, error: enrollError } = await sb().auth.mfa.enroll({
+    factorType: "totp",
+    friendlyName: "His Theatre",
+  });
+  if (enrollError || !enrolled) throw toApiError(enrollError);
   pendingFactorId = enrolled.id;
-  return {
-    needsEnrollment: true,
-    hint: "Scan this with Google Authenticator (or any authenticator app), then enter the 6-digit code it shows.",
-    qrCode: enrolled.totp.qr_code,
-    secret: enrolled.totp.secret,
-  };
+  return { setup: { qrCode: enrolled.totp.qr_code, secret: enrolled.totp.secret } };
 }
 
-export async function verifyOfficerCode(code: string): Promise<Member> {
-  if (!pendingFactorId) throw new ApiError("Start again with your email and password.");
-  const { error } = await sb().auth.mfa.challengeAndVerify({ factorId: pendingFactorId, code: code.trim() });
-  if (error) throw new ApiError("That code isn't right. Use the newest code in your app, and check your phone's time is automatic.");
+export async function verifyOfficerCode(code: string): Promise<Session> {
+  if (!pendingFactorId) throw new ApiError("Start again with your email and password.", "no_challenge");
+  const { error } = await sb().auth.mfa.challengeAndVerify({
+    factorId: pendingFactorId,
+    code: code.trim(),
+  });
+  if (error)
+    throw new ApiError(
+      "That code is not right. Use the newest code in your app, and make sure your phone's time is set automatically.",
+      "invalid_code",
+    );
   pendingFactorId = null;
-  return me();
+  changed();
+  const member = await getCurrentMember();
+  if (!member) throw new ApiError("Please sign in again.", "unauthenticated");
+  return { member };
 }
 
 export async function signOut(): Promise<void> {
   pendingFactorId = null;
+  changed();
   await sb().auth.signOut({ scope: "local" });
 }
 
 export async function changePin(currentPin: string, newPin: string): Promise<void> {
+  validatePin(newPin);
+  if (newPin === currentPin)
+    throw new ApiError("Choose a PIN that is different from your current one.", "invalid");
   await run(sb().rpc("change_pin", { p_current: currentPin, p_new: newPin }));
 }
 
-export async function devPreviewAs(_role: PreviewRole): Promise<Member> {
-  throw new ApiError("Preview is only available with test data.");
+/* ------------------------------------------------------------------ */
+/* My dues                                                              */
+/* ------------------------------------------------------------------ */
+
+export async function getMyDues(semesterId: string): Promise<MyDues | null> {
+  const { me, s } = await load();
+  return duesFor(s, me.id, semesterId, today());
 }
 
-// ---------------------------------------------------------------------------
-// Semesters
-// ---------------------------------------------------------------------------
+export async function getMyPayments(semesterId: string): Promise<PaymentRow[]> {
+  const { me, s } = await load();
+  return s.payments
+    .filter((p) => p.memberId === me.id && p.semesterId === semesterId)
+    .sort(byNewest)
+    .map((p) => paymentRow(s, p));
+}
 
 export async function listSemesters(): Promise<Semester[]> {
-  const rows = await run(sb().from("semesters").select("*").order("starts_on", { ascending: false }));
-  return rows.map(toSemester);
+  const { s } = await load();
+  return [...s.semesters].sort((a, b) => b.startsOn.localeCompare(a.startsOn));
 }
 
-export async function getCurrentSemester(): Promise<Semester> {
-  const all = await listSemesters();
-  const today = todayISO();
-  const open = all.filter((s) => !s.isClosed);
-  const sem = open.find((s) => s.startsOn <= today && today <= s.endsOn) ?? open[0] ?? all[0];
-  if (!sem) throw new ApiError("No semester has been set up yet. The Director sets one up under Admin → Semester.");
-  return sem;
+export async function getCurrentSemester(): Promise<SemesterDetail | null> {
+  const { s } = await load();
+  const t = today();
+  const semester = currentSemesterRecord(s, t);
+  return semester ? semesterDetail(s, semester, t) : null;
 }
 
-export async function getSemesterWeeks(semesterId: string): Promise<SemesterWeek[]> {
-  const rows = await run(sb().from("semester_weeks").select("*").eq("semester_id", semesterId).order("week_no"));
-  return rows.map(toWeek);
-}
+/* ------------------------------------------------------------------ */
+/* Members                                                              */
+/* ------------------------------------------------------------------ */
 
-export async function getRates(semesterId: string): Promise<DuesRate[]> {
-  const rows = await run(sb().from("dues_rates").select("*").eq("semester_id", semesterId));
-  return rows.map(toRate);
-}
-
-/** Everything needed to work out dues for a semester (only rows this person may see come back). */
-async function semesterBundle(semesterId: string) {
-  const [weeks, rates, memberships, adjustments, payments] = await Promise.all([
-    getSemesterWeeks(semesterId),
-    getRates(semesterId),
-    run(sb().from("member_semesters").select("*").eq("semester_id", semesterId)).then((r) => r.map(toMemberSemester)),
-    run(sb().from("adjustments").select("*").eq("semester_id", semesterId)).then((r) => r.map(toAdjustment)),
-    run(sb().from("payments").select("*").eq("semester_id", semesterId)).then((r) => r.map(toPayment)),
-  ]);
-  return { weeks, rates, memberships, adjustments, payments };
-}
-
-type Bundle = Awaited<ReturnType<typeof semesterBundle>>;
-
-function duesFor(member: Member, b: Bundle): DuesSummary | null {
-  const ms = b.memberships.find((x) => x.memberId === member.id);
-  if (!ms) return null;
-  const rate = b.rates.find((r) => r.category === ms.category)?.weeklyAmount ?? 0;
-  return calculateDues(ms, b.weeks, rate, b.adjustments, b.payments, todayISO(), member.leftOn);
-}
-
-function withDues(member: Member, b: Bundle): MemberWithDues {
-  const dues = duesFor(member, b);
-  return { ...member, dues, status: dues ? duesStatus(dues) : null };
-}
-
-// ---------------------------------------------------------------------------
-// Member-facing dues
-// ---------------------------------------------------------------------------
-
-export async function getMyDues(semesterId: string): Promise<DuesSummary | null> {
-  const member = await me();
-  return duesFor(member, await semesterBundle(semesterId));
-}
-
-export async function getMyMembership(semesterId: string): Promise<MemberSemester | null> {
-  const member = await me();
-  const row = await run(
-    sb().from("member_semesters").select("*").eq("semester_id", semesterId).eq("member_id", member.id).maybeSingle(),
-  );
-  return row ? toMemberSemester(row) : null;
-}
-
-export async function getMyPayments(semesterId: string): Promise<Payment[]> {
-  const member = await me();
-  const rows = await run(
-    sb()
-      .from("payments")
-      .select("*")
-      .eq("semester_id", semesterId)
-      .eq("member_id", member.id)
-      .order("created_at", { ascending: false }),
-  );
-  return rows.map(toPayment);
-}
-
-export async function getReceipt(paymentId: string): Promise<ReceiptView> {
-  const viewer = await me();
-  const row = await run(sb().from("payments").select("*").eq("id", paymentId).maybeSingle());
-  if (!row) throw new ApiError("Receipt not found.");
-  const payment = toPayment(row);
-  const owner =
-    payment.memberId === viewer.id
-      ? viewer
-      : toMember(await run(sb().from("members").select("*").eq("id", payment.memberId).single()));
-  const officers = await listOfficers();
-  const recorder = officers.find((o) => o.id === payment.recordedBy);
-  const reversal = await run(sb().from("payments").select("id").eq("reverses_payment_id", payment.id));
-  return {
-    payment,
-    memberName: owner.fullName,
-    memberCode: owner.memberCode,
-    recordedByName: recorder?.fullName ?? "An officer",
-    recordedByPosition: (recorder?.position as OfficerPosition | null) ?? null,
-    reversed: reversal.length > 0,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Members (officers)
-// ---------------------------------------------------------------------------
-
-export async function listMembers(filters: MemberFilters = {}): Promise<MemberWithDues[]> {
-  const sem = await getCurrentSemester();
-  let query = sb().from("members").select("*");
-  if (!filters.includeInactive) query = query.eq("is_active", true);
-  const [rows, bundle] = await Promise.all([run(query), semesterBundle(sem.id)]);
-  const q = filters.search?.trim().toLowerCase();
-  const digits = q?.replace(/\s/g, "");
-  return rows
-    .map(toMember)
+export async function listMembers(filters: MemberFilters = {}): Promise<MemberListItem[]> {
+  const { s } = await asAdmin();
+  const t = today();
+  const semesterId = currentSemesterRecord(s, t)?.id ?? null;
+  const search = filters.search?.trim().toLowerCase() ?? "";
+  const searchCode = normalizeMemberCode(search).toLowerCase();
+  return s.members
+    .filter((m) => filters.includeInactive || m.isActive)
     .filter((m) => !filters.drive || m.drive === filters.drive)
     .filter(
       (m) =>
-        !q ||
-        m.fullName.toLowerCase().includes(q) ||
-        m.memberCode.toLowerCase().includes(q) ||
-        (!!digits && m.phone.replace(/\s/g, "").includes(digits)),
+        !search ||
+        m.fullName.toLowerCase().includes(search) ||
+        m.memberCode.toLowerCase().includes(search) ||
+        m.memberCode.toLowerCase() === searchCode ||
+        m.phone.replace(/\s/g, "").includes(search.replace(/\s/g, "")),
     )
-    .map((m) => withDues(m, bundle))
-    .filter((m) => !filters.status || m.status === filters.status)
-    .sort((a, b) => a.memberCode.localeCompare(b.memberCode));
+    .map((m) => listItem(s, m, semesterId, t))
+    .filter((item) => !filters.status || item.status === filters.status)
+    .sort((a, b) => a.member.fullName.localeCompare(b.member.fullName));
 }
 
-export async function listDrives(): Promise<string[]> {
-  const rows = await run(sb().from("members").select("drive"));
-  const used = rows.map((r: { drive: string }) => r.drive).filter(Boolean);
-  return [...new Set([...DRIVES, ...used])];
-}
-
-export async function getMember(
-  id: string,
-): Promise<MemberWithDues & { payments: Payment[]; adjustments: Adjustment[]; membership: MemberSemester | null }> {
-  const sem = await getCurrentSemester();
-  const [row, bundle] = await Promise.all([
-    run(sb().from("members").select("*").eq("id", id).maybeSingle()),
-    semesterBundle(sem.id),
-  ]);
-  if (!row) throw new ApiError("Member not found.");
-  const member = toMember(row);
+export async function getMember(id: string): Promise<MemberDetail> {
+  const { me, s } = await load();
+  if (me.id !== id && !isAdmin(me))
+    throw new ApiError("You don't have access to this page.", "forbidden");
+  const member = findMember(s, id);
+  const t = today();
+  const semesterId = currentSemesterRecord(s, t)?.id ?? null;
   return {
-    ...withDues(member, bundle),
-    membership: bundle.memberships.find((x) => x.memberId === id) ?? null,
-    payments: bundle.payments
-      .filter((p) => p.memberId === id)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    adjustments: bundle.adjustments.filter((a) => a.memberId === id),
+    member,
+    semesterId,
+    memberSemester:
+      s.memberSemesters.find((x) => x.memberId === id && x.semesterId === semesterId) ?? null,
+    dues: semesterId ? duesFor(s, id, semesterId, t) : null,
+    payments: s.payments
+      .filter((p) => p.memberId === id && (!semesterId || p.semesterId === semesterId))
+      .sort(byNewest)
+      .map((p) => paymentRow(s, p)),
+    adjustments: s.adjustments
+      .filter((a) => a.memberId === id && (!semesterId || a.semesterId === semesterId))
+      .sort(byNewest)
+      .map((a) => adjustmentRow(s, a)),
   };
 }
 
 export async function addMember(input: NewMemberInput): Promise<Member> {
-  if (!input.fullName.trim()) throw new ApiError("Enter the member's full name.");
-  const sem = await getCurrentSemester();
-  const row = await run(
+  const { s } = await asAdmin();
+  const fullName = requireText(input.fullName, "Full name", 2, 100);
+  const drive = requireText(input.drive, "Drive", 1, 60);
+  const phone = input.phone.trim();
+  if (phone.length > 20) throw new ApiError("That phone number is too long.", "invalid");
+  const row = await run<Row>(
     sb()
       .from("members")
-      .insert({ full_name: input.fullName.trim(), phone: input.phone.trim(), drive: input.drive, category: input.category })
-      .select("*")
+      .insert({ full_name: fullName, phone, drive, category: input.category })
+      .select()
       .single(),
   );
-  const member = toMember(row);
-  // They join the current semester from this week.
-  const weeks = await getSemesterWeeks(sem.id);
-  const today = todayISO();
-  const startWeek = [...weeks].reverse().find((w) => w.weekStart <= today)?.weekNo ?? 1;
-  await run(
-    sb()
-      .from("member_semesters")
-      .insert({ member_id: member.id, semester_id: sem.id, category: member.category, start_week_no: startWeek }),
-  );
-  return member;
-}
-
-export async function updateMember(id: string, input: UpdateMemberInput): Promise<Member> {
-  const patch: Record<string, string> = {};
-  if (input.fullName !== undefined) patch.full_name = input.fullName.trim();
-  if (input.phone !== undefined) patch.phone = input.phone.trim();
-  if (input.drive !== undefined) patch.drive = input.drive;
-  if (input.category !== undefined) patch.category = input.category;
-  const row = await run(sb().from("members").update(patch).eq("id", id).select("*").single());
-  if (input.category) {
-    const sem = await getCurrentSemester();
-    await run(sb().from("member_semesters").update({ category: input.category }).eq("member_id", id).eq("semester_id", sem.id));
+  changed();
+  const semester = currentSemesterRecord(s, today());
+  if (semester && !semester.isClosed) {
+    const maxWeek = weeksOf(s, semester.id).length || 1;
+    await run(
+      sb()
+        .from("member_semesters")
+        .insert({
+          member_id: row.id,
+          semester_id: semester.id,
+          category: input.category,
+          start_week_no: Math.min(Math.max(1, Math.round(input.startWeekNo)), maxWeek),
+        }),
+    );
   }
   return toMember(row);
 }
 
-export async function deactivateMember(id: string, leftOn: ISODate): Promise<Member> {
-  const row = await run(sb().from("members").update({ is_active: false, left_on: leftOn }).eq("id", id).select("*").single());
+export async function updateMember(id: string, patch: MemberUpdate): Promise<Member> {
+  const { s } = await asAdmin();
+  const member = findMember(s, id);
+  const update: Row = {};
+  if (patch.fullName !== undefined) update.full_name = requireText(patch.fullName, "Full name", 2, 100);
+  if (patch.phone !== undefined) {
+    const phone = patch.phone.trim();
+    if (phone.length > 20) throw new ApiError("That phone number is too long.", "invalid");
+    update.phone = phone;
+  }
+  if (patch.drive !== undefined) update.drive = requireText(patch.drive, "Drive", 1, 60);
+  if (patch.category !== undefined) update.category = patch.category;
+  const row = await run<Row>(sb().from("members").update(update).eq("id", id).select().single());
+  changed();
+  // The category for the current semester follows, so the right weekly rate applies.
+  if (patch.category !== undefined && patch.category !== member.category) {
+    const semester = currentSemesterRecord(s, today());
+    const onRoll =
+      semester && s.memberSemesters.some((x) => x.memberId === id && x.semesterId === semester.id);
+    if (semester && onRoll && !semester.isClosed) {
+      await run(
+        sb()
+          .from("member_semesters")
+          .update({ category: patch.category })
+          .eq("member_id", id)
+          .eq("semester_id", semester.id),
+      );
+    }
+  }
   return toMember(row);
 }
 
-export async function issueSetupCode(memberId: string): Promise<string> {
-  return run(sb().rpc("issue_setup_code", { p_member: memberId }));
-}
-
-export async function unlockMember(memberId: string): Promise<Member> {
-  await run(sb().rpc("unlock_member", { p_member: memberId }));
-  return toMember(await run(sb().from("members").select("*").eq("id", memberId).single()));
-}
-
-export async function setRole(memberId: string, role: MemberRole, position: OfficerPosition | null): Promise<Member> {
-  if (role !== "member" && !position) throw new ApiError("Choose their position.");
-  const row = await run(
-    sb()
-      .from("members")
-      .update({ role, position: role === "member" ? null : position })
-      .eq("id", memberId)
-      .select("*")
-      .single(),
+export async function deactivateMember(id: string, leftOn: IsoDate): Promise<Member> {
+  const { me } = await asAdmin();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(leftOn)) throw new ApiError("Choose the date they left.", "invalid");
+  if (id === me.id) throw new ApiError("You cannot deactivate your own account.", "invalid");
+  const row = await run<Row>(
+    sb().from("members").update({ is_active: false, left_on: leftOn }).eq("id", id).select().single(),
   );
+  changed();
   return toMember(row);
 }
 
-// ---------------------------------------------------------------------------
-// Payments & adjustments
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/* Money: dues payments and adjustments                                 */
+/* ------------------------------------------------------------------ */
 
-export async function recordPayment(input: RecordPaymentInput): Promise<Payment> {
-  assertAmount(input.amount);
-  if (input.method === "momo" && !input.momoReference?.trim()) throw new ApiError("Enter the MoMo transaction ID.");
-  const officer = await me();
+async function paymentById(id: string): Promise<PaymentRow> {
+  changed();
+  const { s } = await load();
+  const payment = s.payments.find((p) => p.id === id);
+  if (!payment) throw new ApiError("That payment could not be found.", "not_found");
+  return paymentRow(s, payment);
+}
+
+export async function recordPayment(input: RecordPaymentInput): Promise<PaymentRow> {
+  const { s } = await asAdmin();
+  // A retried submission returns the payment that was already recorded.
+  const existing = s.payments.find((p) => p.idempotencyKey === input.idempotencyKey);
+  if (existing) return paymentRow(s, existing);
+
+  requirePositiveAmount(input.amount);
+  if (input.amount > 200_000)
+    throw new ApiError("One payment can't be more than GH₵ 2,000. Split it into two.", "invalid");
+  requireOpenSemester(s, input.semesterId);
+  const member = findMember(s, input.memberId);
+  if (!s.memberSemesters.some((x) => x.memberId === member.id && x.semesterId === input.semesterId))
+    throw new ApiError(`${member.fullName} is not on the roll for this semester.`, "invalid");
+  const momoReference = input.momoReference?.trim();
+  if (input.method === "momo" && !momoReference)
+    throw new ApiError("Enter the MoMo transaction ID.", "invalid");
+  notInFuture(input.paidOn, "The payment date");
+  const note = input.note?.trim();
+
   const { data, error } = await sb()
     .from("payments")
     .insert({
-      member_id: input.memberId,
+      member_id: member.id,
       semester_id: input.semesterId,
       amount: input.amount,
       method: input.method,
-      momo_reference: input.method === "momo" ? input.momoReference?.trim() : null,
+      momo_reference: input.method === "momo" ? momoReference : null,
       paid_on: input.paidOn,
-      note: input.note?.trim() || null,
+      note: note ? note.slice(0, 300) : null,
       idempotency_key: input.idempotencyKey,
-      recorded_by: officer.id, // the database replaces this with the signed-in officer
     })
-    .select("*")
+    .select("id")
     .single();
   if (error) {
-    // Same tap twice: return the payment that was already saved.
-    if (/idempotency_key/.test(error.message)) {
-      const existing = await run(sb().from("payments").select("*").eq("idempotency_key", input.idempotencyKey).single());
-      return toPayment(existing);
+    // Sent twice (say, on a weak connection): the first one already went through.
+    if (error.code === "23505" && /idempotency/i.test(error.message)) {
+      changed();
+      const again = (await load()).s.payments.find((p) => p.idempotencyKey === input.idempotencyKey);
+      if (again) return paymentById(again.id);
     }
-    fail(error);
+    throw toApiError(error);
   }
-  return toPayment(data);
+  return paymentById((data as Row).id);
 }
 
-export async function reversePayment(id: string, reason: string): Promise<Payment> {
-  assertReason(reason);
-  const officer = await me();
-  const original = toPayment(await run(sb().from("payments").select("*").eq("id", id).single()));
-  if (original.reversesPaymentId) throw new ApiError("A reversal can't be reversed.");
-  const row = await run(
+export async function reversePayment(id: string, reason: string): Promise<PaymentRow> {
+  const { s } = await asAdmin();
+  const original = s.payments.find((p) => p.id === id);
+  if (!original) throw new ApiError("That payment could not be found.", "not_found");
+  if (original.reversesPaymentId)
+    throw new ApiError("A reversal cannot itself be voided. Record a new payment instead.", "invalid");
+  if (s.payments.some((p) => p.reversesPaymentId === id))
+    throw new ApiError(`${original.receiptNo} has already been voided.`, "invalid");
+  const why = requireText(reason, "A reason", 3, 300);
+  requireOpenSemester(s, original.semesterId);
+  const row = await run<Row>(
     sb()
       .from("payments")
       .insert({
@@ -610,463 +772,430 @@ export async function reversePayment(id: string, reason: string): Promise<Paymen
         amount: -original.amount,
         method: original.method,
         momo_reference: original.momoReference ?? null,
-        paid_on: todayISO(),
-        note: `Reversal of ${original.receiptNo}: ${reason.trim()}`.slice(0, 300),
+        paid_on: today(),
+        note: why,
         reverses_payment_id: original.id,
-        idempotency_key: newKey(),
-        recorded_by: officer.id,
+        idempotency_key: `reverse:${original.id}`,
       })
-      .select("*")
+      .select("id")
       .single(),
-  ).catch((e: Error) => {
-    if (/reverses_payment_id/.test(e.message)) throw new ApiError("This payment has already been reversed.");
-    throw e;
-  });
-  return toPayment(row);
+  );
+  return paymentById(row.id);
 }
 
-export async function addAdjustment(input: AdjustmentInput): Promise<Adjustment> {
-  assertReason(input.reason);
-  if (!Number.isInteger(input.amount) || input.amount === 0) throw new ApiError("Enter an amount.");
-  const officer = await me();
-  const row = await run(
+export async function addAdjustment(input: AdjustmentInput): Promise<AdjustmentRow> {
+  const { s } = await asAdmin();
+  if (!Number.isSafeInteger(input.amount) || input.amount === 0)
+    throw new ApiError("Enter an amount greater than zero.", "invalid");
+  const why = requireText(input.reason, "A reason", 3, 300);
+  requireOpenSemester(s, input.semesterId);
+  findMember(s, input.memberId);
+  const row = await run<Row>(
     sb()
       .from("adjustments")
       .insert({
         member_id: input.memberId,
         semester_id: input.semesterId,
         amount: input.amount,
-        reason: input.reason.trim(),
-        recorded_by: officer.id,
+        reason: why,
       })
-      .select("*")
+      .select()
       .single(),
   );
-  return toAdjustment(row);
+  changed();
+  return adjustmentRow((await load()).s, toAdjustment(row));
 }
 
-// ---------------------------------------------------------------------------
-// Expenses, other income, handovers
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/* Money: expenses, other income, handovers                             */
+/* ------------------------------------------------------------------ */
 
-export async function listExpenses(): Promise<Expense[]> {
-  const rows = await run(sb().from("expenses").select("*").order("created_at", { ascending: false }));
-  return rows.map(toExpense);
+async function expenseById(id: string): Promise<ExpenseRow> {
+  changed();
+  const { s } = await load();
+  const expense = s.expenses.find((e) => e.id === id);
+  if (!expense) throw new ApiError("That expense could not be found.", "not_found");
+  return expenseRow(s, expense);
 }
 
-export async function recordExpense(input: ExpenseInput): Promise<Expense> {
-  assertAmount(input.amount);
-  const officer = await me();
-  const row = await run(
+async function incomeById(id: string): Promise<IncomeRow> {
+  changed();
+  const { s } = await load();
+  const income = s.income.find((i) => i.id === id);
+  if (!income) throw new ApiError("That income could not be found.", "not_found");
+  return incomeRow(s, income);
+}
+
+export async function recordExpense(input: ExpenseInput): Promise<ExpenseRow> {
+  await asAdmin();
+  requirePositiveAmount(input.amount);
+  notInFuture(input.date, "The expense date");
+  const row = await run<Row>(
     sb()
       .from("expenses")
       .insert({
-        description: input.description.trim(),
-        category: input.category,
+        description: requireText(input.description, "A description"),
+        category: requireText(input.category, "A category", 1, 60),
         amount: input.amount,
-        paid_by: input.paidBy.trim(),
-        approved_by: input.approvedBy.trim(),
-        receipt_ref: input.receiptRef?.trim() || null,
+        paid_by: requireText(input.paidBy, "Who paid", 2, 80),
+        approved_by: requireText(input.approvedBy, "Who approved it", 2, 80),
+        receipt_ref: input.receiptRef?.trim() ? input.receiptRef.trim().slice(0, 80) : null,
         date: input.date,
-        recorded_by: officer.id,
       })
-      .select("*")
+      .select("id")
       .single(),
   );
-  return toExpense(row);
+  return expenseById(row.id);
 }
 
-export async function reverseExpense(id: string, reason: string): Promise<Expense> {
-  assertReason(reason);
-  const officer = await me();
-  const original = toExpense(await run(sb().from("expenses").select("*").eq("id", id).single()));
-  const row = await run(
+export async function reverseExpense(id: string, reason: string): Promise<ExpenseRow> {
+  const { s } = await asAdmin();
+  const original = s.expenses.find((e) => e.id === id);
+  if (!original) throw new ApiError("That expense could not be found.", "not_found");
+  if (original.reversesId) throw new ApiError("A reversal cannot itself be voided.", "invalid");
+  if (s.expenses.some((e) => e.reversesId === id))
+    throw new ApiError(`${original.ref} has already been voided.`, "invalid");
+  const why = requireText(reason, "A reason");
+  const row = await run<Row>(
     sb()
       .from("expenses")
       .insert({
-        description: `Reversal of ${original.ref}: ${reason.trim()}`.slice(0, 200),
+        description: why,
         category: original.category,
         amount: -original.amount,
         paid_by: original.paidBy,
         approved_by: original.approvedBy,
-        date: todayISO(),
+        receipt_ref: original.receiptRef ?? null,
+        date: today(),
         reverses_id: original.id,
-        recorded_by: officer.id,
       })
-      .select("*")
+      .select("id")
       .single(),
-  ).catch((e: Error) => {
-    if (/reverses_id/.test(e.message)) throw new ApiError("This entry has already been reversed.");
-    throw e;
-  });
-  return toExpense(row);
+  );
+  return expenseById(row.id);
 }
 
-export async function listIncome(): Promise<OtherIncome[]> {
-  const rows = await run(sb().from("other_income").select("*").order("created_at", { ascending: false }));
-  return rows.map(toIncome);
-}
-
-export async function recordIncome(input: IncomeInput): Promise<OtherIncome> {
-  assertAmount(input.amount);
-  const officer = await me();
-  const row = await run(
+export async function recordIncome(input: IncomeInput): Promise<IncomeRow> {
+  await asAdmin();
+  requirePositiveAmount(input.amount);
+  notInFuture(input.date, "The date");
+  const row = await run<Row>(
     sb()
       .from("other_income")
       .insert({
         source: input.source,
-        description: input.description.trim(),
+        description: requireText(input.description, "A description"),
         amount: input.amount,
         method: input.method,
         date: input.date,
-        recorded_by: officer.id,
       })
-      .select("*")
+      .select("id")
       .single(),
   );
-  return toIncome(row);
+  return incomeById(row.id);
 }
 
-export async function reverseIncome(id: string, reason: string): Promise<OtherIncome> {
-  assertReason(reason);
-  const officer = await me();
-  const original = toIncome(await run(sb().from("other_income").select("*").eq("id", id).single()));
-  const row = await run(
+export async function reverseIncome(id: string, reason: string): Promise<IncomeRow> {
+  const { s } = await asAdmin();
+  const original = s.income.find((i) => i.id === id);
+  if (!original) throw new ApiError("That income could not be found.", "not_found");
+  if (original.reversesId) throw new ApiError("A reversal cannot itself be voided.", "invalid");
+  if (s.income.some((i) => i.reversesId === id))
+    throw new ApiError(`${original.ref} has already been voided.`, "invalid");
+  const why = requireText(reason, "A reason");
+  const row = await run<Row>(
     sb()
       .from("other_income")
       .insert({
         source: original.source,
-        description: `Reversal of ${original.ref}: ${reason.trim()}`.slice(0, 200),
+        description: why,
         amount: -original.amount,
         method: original.method,
-        date: todayISO(),
+        date: today(),
         reverses_id: original.id,
-        recorded_by: officer.id,
       })
-      .select("*")
-      .single(),
-  ).catch((e: Error) => {
-    if (/reverses_id/.test(e.message)) throw new ApiError("This entry has already been reversed.");
-    throw e;
-  });
-  return toIncome(row);
-}
-
-export async function listHandovers(): Promise<Handover[]> {
-  const rows = await run(sb().from("handovers").select("*").order("recorded_at", { ascending: false }));
-  return rows.map(toHandover);
-}
-
-export async function recordHandover(input: HandoverInput): Promise<Handover> {
-  assertAmount(input.amount);
-  const officer = await me();
-  if (officer.position !== "Financial Secretary") throw new ApiError("Only the Financial Secretary records handovers.");
-  const row = await run(
-    sb()
-      .from("handovers")
-      .insert({ from_member_id: officer.id, to_member_id: input.toMemberId, amount: input.amount })
-      .select("*")
+      .select("id")
       .single(),
   );
-  return toHandover(row);
+  return incomeById(row.id);
 }
 
-export async function confirmHandover(id: string): Promise<Handover> {
-  const { data, error } = await sb()
-    .from("handovers")
-    .update({ confirmed_at: new Date().toISOString() })
-    .eq("id", id)
-    .select("*")
-    .maybeSingle();
-  if (error) fail(error);
-  if (!data) throw new ApiError("Only the person receiving the cash can confirm it.");
-  return toHandover(data);
+export async function recordHandover(input: HandoverInput): Promise<HandoverRow> {
+  const { me, s } = await asAdmin();
+  requirePositiveAmount(input.amount);
+  const to = findMember(s, input.toMemberId);
+  if (to.id === me.id) throw new ApiError("Choose someone other than yourself.", "invalid");
+  if (!isAdmin(to)) throw new ApiError("Cash can only be handed to an officer.", "invalid");
+  const holding = cashPosition(s).holders.find((h) => h.memberId === me.id)?.holding ?? 0;
+  if (input.amount > holding)
+    throw new ApiError(
+      `You are only holding GH₵ ${(Math.max(0, holding) / 100).toFixed(2)} in cash.`,
+      "invalid",
+    );
+  const row = await run<Row>(
+    sb()
+      .from("handovers")
+      .insert({ from_member_id: me.id, to_member_id: to.id, amount: input.amount })
+      .select()
+      .single(),
+  );
+  changed();
+  return handoverRow((await load()).s, toHandover(row));
 }
 
-// ---------------------------------------------------------------------------
-// Overviews (worked out from the rows officers can read)
-// ---------------------------------------------------------------------------
-
-async function allMoney() {
-  const [payments, income, expenses, handovers] = await Promise.all([
-    run(sb().from("payments").select("*")).then((r) => r.map(toPayment)),
-    listIncome(),
-    listExpenses(),
-    listHandovers(),
-  ]);
-  return { payments, income, expenses, handovers };
+export async function confirmHandover(id: string): Promise<HandoverRow> {
+  const { me, s } = await asAdmin();
+  const handover = s.handovers.find((h) => h.id === id);
+  if (!handover) throw new ApiError("That handover could not be found.", "not_found");
+  if (handover.toMemberId !== me.id)
+    throw new ApiError(
+      `Only ${findMember(s, handover.toMemberId).fullName} can confirm receiving this cash.`,
+      "forbidden",
+    );
+  if (handover.confirmedAt) throw new ApiError(`${handover.ref} was already confirmed.`, "invalid");
+  // The database stamps the time itself; this value only marks the change.
+  const row = await run<Row>(
+    sb()
+      .from("handovers")
+      .update({ confirmed_at: new Date().toISOString() })
+      .eq("id", id)
+      .select()
+      .single(),
+  );
+  changed();
+  return handoverRow((await load()).s, toHandover(row));
 }
 
-/**
- * Who holds the cash: cash an officer recorded stays with them until handed over;
- * confirmed handovers move it; cash expenses come out of whoever recorded them.
- */
 export async function getCashPosition(): Promise<CashPosition> {
-  const [{ payments, income, expenses, handovers }, officers] = await Promise.all([allMoney(), listOfficers()]);
-  const sum = (xs: { amount: number }[]) => xs.reduce((s, x) => s + x.amount, 0);
-  const holders = officers.map((o) => {
-    const cashIn =
-      sum(payments.filter((p) => p.method === "cash" && p.recordedBy === o.id)) +
-      sum(income.filter((i) => i.method === "cash" && i.recordedBy === o.id));
-    const spent = sum(expenses.filter((e) => e.recordedBy === o.id));
-    const handedOut = sum(handovers.filter((h) => h.fromMemberId === o.id));
-    const received = sum(handovers.filter((h) => h.toMemberId === o.id && h.confirmedAt));
-    return { memberId: o.id, fullName: o.fullName, position: o.position, cash: cashIn - spent - handedOut + received };
-  });
-  const duesCash = sum(payments.filter((p) => p.method === "cash"));
-  const duesMomo = sum(payments.filter((p) => p.method === "momo"));
-  const incCash = sum(income.filter((i) => i.method === "cash"));
-  const incMomo = sum(income.filter((i) => i.method === "momo"));
-  const spentAll = sum(expenses);
-  const pending = handovers.filter((h) => !h.confirmedAt);
-  return {
-    balance: duesCash + duesMomo + incCash + incMomo - spentAll,
-    cash: duesCash + incCash - spentAll,
-    momo: duesMomo + incMomo,
-    holders,
-    inTransit: sum(pending),
-    pendingHandovers: pending,
-  };
+  const { s } = await asAdmin();
+  return cashPosition(s);
 }
 
-export async function getToday(): Promise<TodaySummary> {
-  const date = todayISO();
-  const { payments: allPayments, income: allIncome, expenses: allExpenses, handovers: allHandovers } = await allMoney();
-  const payments = allPayments.filter((p) => p.paidOn === date).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const income = allIncome.filter((i) => i.date === date);
-  const expenses = allExpenses.filter((e) => e.date === date);
-  const handovers = allHandovers.filter((h) => todayISO(new Date(h.recordedAt)) === date || !h.confirmedAt);
-  const sum = (xs: { amount: number }[]) => xs.reduce((s, x) => s + x.amount, 0);
-  const cash = sum(payments.filter((p) => p.method === "cash")) + sum(income.filter((i) => i.method === "cash"));
-  const momo = sum(payments.filter((p) => p.method === "momo")) + sum(income.filter((i) => i.method === "momo"));
-  return { date, collected: cash + momo, collectedCash: cash, collectedMomo: momo, spent: sum(expenses), payments, income, expenses, handovers };
+/* ------------------------------------------------------------------ */
+/* Today, dashboard and reports                                         */
+/* ------------------------------------------------------------------ */
+
+export async function getToday(): Promise<TodayReport> {
+  const { me, s } = await asAdmin();
+  return todayReport(s, me.id, today());
 }
 
 export async function getDashboard(semesterId: string): Promise<Dashboard> {
-  const [sems, memberRows, bundle] = await Promise.all([
-    listSemesters(),
-    run(sb().from("members").select("*").eq("is_active", true)),
-    semesterBundle(semesterId),
-  ]);
-  const semester = sems.find((s) => s.id === semesterId);
-  if (!semester) throw new ApiError("Semester not found.");
-  const rows = memberRows.map(toMember).map((m) => withDues(m, bundle)).filter((m) => m.dues);
-  const total = (k: keyof DuesSummary) => rows.reduce((s, r) => s + Number(r.dues?.[k] ?? 0), 0);
-  return {
-    semester,
-    memberCount: rows.length,
-    paidUp: rows.filter((r) => r.status === "paid_up").length,
-    behind: rows.filter((r) => r.status === "behind").length,
-    ahead: rows.filter((r) => r.status === "ahead").length,
-    dueSoFar: total("dueSoFar"),
-    collected: total("paid"),
-    owing: total("owing"),
-    semesterTotal: total("semesterTotal"),
-  };
+  const { s } = await asAdmin();
+  return dashboard(s, findSemester(s, semesterId), today());
 }
 
-export async function getReport(from: ISODate, to: ISODate): Promise<Report> {
-  const [{ payments: allPayments, income: allIncome, expenses: allExpenses }, memberRows] = await Promise.all([
-    allMoney(),
-    run(sb().from("members").select("id, drive")),
-  ]);
-  const driveOf = new Map<string, string>(memberRows.map((m: { id: string; drive: string }) => [m.id, m.drive] as [string, string]));
-  const inRange = (d: string) => d >= from && d <= to;
-  const payments = allPayments.filter((p) => inRange(p.paidOn)).sort((a, b) => a.paidOn.localeCompare(b.paidOn));
-  const income = allIncome.filter((i) => inRange(i.date));
-  const expenses = allExpenses.filter((e) => inRange(e.date));
-  const sum = (xs: { amount: number }[]) => xs.reduce((s, x) => s + x.amount, 0);
-
-  const incomeBySource = { donation: 0, offering: 0, ticket_sales: 0, fundraising: 0, levy: 0, other: 0 } as Record<IncomeSource, number>;
-  for (const i of income) incomeBySource[i.source] += i.amount;
-  const expensesByCategory: Record<string, number> = {};
-  for (const e of expenses) expensesByCategory[e.category] = (expensesByCategory[e.category] ?? 0) + e.amount;
-  const duesByDrive: Record<string, number> = {};
-  for (const p of payments) {
-    const drive = driveOf.get(p.memberId) || "No drive";
-    duesByDrive[drive] = (duesByDrive[drive] ?? 0) + p.amount;
-  }
-  const duesCash = sum(payments.filter((p) => p.method === "cash"));
-  const duesMomo = sum(payments.filter((p) => p.method === "momo"));
-  const incomeTotal = sum(income);
-  const expensesTotal = sum(expenses);
-  const openingBalance =
-    sum(allPayments.filter((p) => p.paidOn < from)) + sum(allIncome.filter((i) => i.date < from)) - sum(allExpenses.filter((e) => e.date < from));
-  const net = duesCash + duesMomo + incomeTotal - expensesTotal;
-  return {
-    from,
-    to,
-    openingBalance,
-    closingBalance: openingBalance + net,
-    duesByDrive,
-    duesCollected: duesCash + duesMomo,
-    duesCash,
-    duesMomo,
-    incomeBySource,
-    incomeTotal,
-    expensesByCategory,
-    expensesTotal,
-    net,
-    payments,
-    income,
-    expenses,
-  };
+export async function getReport(from: IsoDate, to: IsoDate): Promise<Report> {
+  const { s } = await asAdmin();
+  if (from > to) throw new ApiError("The start date must be on or before the end date.", "invalid");
+  return report(s, from, to);
 }
 
-// ---------------------------------------------------------------------------
-// Semester setup (Director)
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/* Semester settings (the Director)                                     */
+/* ------------------------------------------------------------------ */
 
-function mondayOf(date: ISODate): ISODate {
-  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
-  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  return addDays(date, dow === 0 ? -6 : 1 - dow);
-}
+export async function saveSemester(input: SemesterInput): Promise<SemesterDetail> {
+  const { s } = await asSuperAdmin();
+  const name = requireText(input.name, "A name", 2, 60);
+  if (!input.startsOn || !input.endsOn || input.startsOn >= input.endsOn)
+    throw new ApiError("The semester must end after it starts.", "invalid");
+  // One week per Monday, from the week holding the start date up to the end date.
+  const mondays: IsoDate[] = [];
+  for (let d = mondayOf(input.startsOn); d <= input.endsOn; d = addDays(d, 7)) mondays.push(d);
+  if (mondays.length > 30) throw new ApiError("A semester cannot be longer than 30 weeks.", "invalid");
 
-export async function saveSemester(input: SemesterInput): Promise<Semester> {
-  if (!input.name.trim()) throw new ApiError("Give the semester a name.");
-  if (input.endsOn <= input.startsOn) throw new ApiError("The end date must be after the start date.");
+  let semesterId: string;
   if (input.id) {
-    const row = await run(
+    const semester = findSemester(s, input.id);
+    if (semester.isClosed) throw new ApiError("A closed semester cannot be changed.", "closed");
+    semesterId = semester.id;
+    await run(
       sb()
         .from("semesters")
-        .update({ name: input.name.trim(), starts_on: input.startsOn, ends_on: input.endsOn })
-        .eq("id", input.id)
-        .select("*")
+        .update({ name, starts_on: input.startsOn, ends_on: input.endsOn })
+        .eq("id", semesterId),
+    );
+    const previous = weeksOf(s, semesterId);
+    const gone = previous.filter((w) => !mondays.includes(w.weekStart));
+    if (gone.length)
+      await run(sb().from("semester_weeks").delete().in("id", gone.map((w) => w.id)));
+    // Renumber kept weeks in two steps so week numbers never clash on the way.
+    const kept = previous.filter((w) => mondays.includes(w.weekStart));
+    const moved = kept.filter((w) => w.weekNo !== mondays.indexOf(w.weekStart) + 1);
+    for (const w of moved)
+      await run(sb().from("semester_weeks").update({ week_no: w.weekNo + 1000 }).eq("id", w.id));
+    for (const w of moved)
+      await run(
+        sb()
+          .from("semester_weeks")
+          .update({ week_no: mondays.indexOf(w.weekStart) + 1 })
+          .eq("id", w.id),
+      );
+    const added = mondays
+      .map((weekStart, i) => ({ semester_id: semesterId, week_no: i + 1, week_start: weekStart }))
+      .filter((w) => !kept.some((k) => k.weekStart === w.week_start));
+    if (added.length) await run(sb().from("semester_weeks").insert(added));
+  } else {
+    const previous = currentSemesterRecord(s, today());
+    const row = await run<Row>(
+      sb()
+        .from("semesters")
+        .insert({ name, starts_on: input.startsOn, ends_on: input.endsOn })
+        .select()
         .single(),
     );
-    return toSemester(row);
-  }
-  const previous = (await listSemesters())[0];
-  const previousRates = previous ? await getRates(previous.id) : [];
-  const sem = toSemester(
-    await run(
-      sb().from("semesters").insert({ name: input.name.trim(), starts_on: input.startsOn, ends_on: input.endsOn }).select("*").single(),
-    ),
-  );
-  const weeks: { semester_id: string; week_no: number; week_start: string; counts: boolean }[] = [];
-  for (let monday = mondayOf(input.startsOn), n = 1; monday <= input.endsOn; monday = addDays(monday, 7), n++) {
-    weeks.push({ semester_id: sem.id, week_no: n, week_start: monday, counts: true });
-  }
-  await run(sb().from("semester_weeks").insert(weeks));
-  const rateOf = (c: MemberCategory) => previousRates.find((r) => r.category === c)?.weeklyAmount ?? (c === "executive" ? 1000 : 500);
-  await run(
-    sb()
-      .from("dues_rates")
-      .insert((["executive", "member"] as const).map((category) => ({ semester_id: sem.id, category, weekly_amount: rateOf(category) }))),
-  );
-  const active = (await run(sb().from("members").select("id, category").eq("is_active", true))) as { id: string; category: MemberCategory }[];
-  if (active.length) {
+    semesterId = row.id;
     await run(
       sb()
-        .from("member_semesters")
-        .insert(active.map((m) => ({ member_id: m.id, semester_id: sem.id, category: m.category, start_week_no: 1 }))),
+        .from("semester_weeks")
+        .insert(mondays.map((weekStart, i) => ({ semester_id: semesterId, week_no: i + 1, week_start: weekStart }))),
     );
+    await run(
+      sb()
+        .from("dues_rates")
+        .insert(
+          (["executive", "member"] as const).map((category) => ({
+            semester_id: semesterId,
+            category,
+            weekly_amount:
+              s.rates.find((r) => r.semesterId === previous?.id && r.category === category)
+                ?.weeklyAmount ?? (category === "executive" ? 1000 : 500),
+          })),
+        ),
+    );
+    const roll = s.members
+      .filter((m) => m.isActive)
+      .map((m) => ({ member_id: m.id, semester_id: semesterId, category: m.category, start_week_no: 1 }));
+    if (roll.length) await run(sb().from("member_semesters").insert(roll));
   }
-  return sem;
+  changed();
+  const fresh = (await load()).s;
+  return semesterDetail(fresh, findSemester(fresh, semesterId), today());
 }
 
-export async function addWeeks(semesterId: string, count: number): Promise<SemesterWeek[]> {
-  if (!Number.isInteger(count) || count < 1 || count > 20) throw new ApiError("Add between 1 and 20 weeks.");
-  const [weeks, sems] = await Promise.all([getSemesterWeeks(semesterId), listSemesters()]);
-  const sem = sems.find((s) => s.id === semesterId);
-  if (!sem) throw new ApiError("Semester not found.");
-  const last = weeks[weeks.length - 1];
-  let monday = last ? addDays(last.weekStart, 7) : mondayOf(sem.startsOn);
-  let weekNo = last ? last.weekNo + 1 : 1;
-  const rows: { semester_id: string; week_no: number; week_start: string; counts: boolean }[] = [];
-  for (let i = 0; i < count; i++) {
-    rows.push({ semester_id: semesterId, week_no: weekNo, week_start: monday, counts: true });
-    monday = addDays(monday, 7);
-    weekNo += 1;
-  }
-  await run(sb().from("semester_weeks").insert(rows));
-  await run(sb().from("semesters").update({ ends_on: addDays(monday, -1) }).eq("id", semesterId));
-  return getSemesterWeeks(semesterId);
-}
-
-export async function setStartWeek(memberId: string, semesterId: string, startWeekNo: number): Promise<MemberSemester> {
-  const row = await run(
-    sb()
-      .from("member_semesters")
-      .update({ start_week_no: startWeekNo })
-      .eq("member_id", memberId)
-      .eq("semester_id", semesterId)
-      .select("*")
-      .single(),
+export async function setWeekCounts(
+  weekId: string,
+  counts: boolean,
+  label?: string,
+): Promise<SemesterWeek> {
+  const { s } = await asSuperAdmin();
+  const week = s.weeks.find((w) => w.id === weekId);
+  if (!week) throw new ApiError("That week could not be found.", "not_found");
+  requireOpenSemester(s, week.semesterId);
+  const text = label?.trim().slice(0, 40) || null;
+  const row = await run<Row>(
+    sb().from("semester_weeks").update({ counts, label: text }).eq("id", weekId).select().single(),
   );
-  return toMemberSemester(row);
-}
-
-export async function setWeekCounts(weekId: string, counts: boolean, label?: string): Promise<SemesterWeek> {
-  const row = await run(
-    sb()
-      .from("semester_weeks")
-      .update({ counts, label: counts ? null : label?.trim() || "No dues this week" })
-      .eq("id", weekId)
-      .select("*")
-      .single(),
-  );
+  changed();
   return toWeek(row);
 }
 
-export async function setRates(
-  semesterId: string,
-  rates: { category: MemberCategory; weeklyAmount: number }[],
-): Promise<DuesRate[]> {
-  for (const r of rates) {
-    if (!Number.isInteger(r.weeklyAmount) || r.weeklyAmount < 0) throw new ApiError("Rates must be whole pesewas.");
+export async function setRates(semesterId: string, rates: RatesInput): Promise<SemesterDetail> {
+  const { s } = await asSuperAdmin();
+  const semester = requireOpenSemester(s, semesterId);
+  for (const category of ["executive", "member"] as const) {
+    const amount = rates[category];
+    if (!Number.isSafeInteger(amount) || amount < 0)
+      throw new ApiError("Rates must be zero or more.", "invalid");
   }
   await run(
     sb()
       .from("dues_rates")
-      .upsert(rates.map((r) => ({ semester_id: semesterId, category: r.category, weekly_amount: r.weeklyAmount })), {
-        onConflict: "semester_id,category",
-      }),
+      .upsert(
+        (["executive", "member"] as const).map((category) => ({
+          semester_id: semesterId,
+          category,
+          weekly_amount: rates[category],
+        })),
+        { onConflict: "semester_id,category" },
+      ),
   );
-  return getRates(semesterId);
+  changed();
+  const fresh = (await load()).s;
+  return semesterDetail(fresh, findSemester(fresh, semester.id), today());
 }
 
 export async function closeSemester(semesterId: string): Promise<Semester> {
-  const row = await run(sb().from("semesters").update({ is_closed: true }).eq("id", semesterId).select("*").single());
+  const { s } = await asSuperAdmin();
+  const semester = findSemester(s, semesterId);
+  if (semester.isClosed) throw new ApiError(`${semester.name} is already closed.`, "invalid");
+  const row = await run<Row>(
+    sb().from("semesters").update({ is_closed: true }).eq("id", semesterId).select().single(),
+  );
+  changed();
   return toSemester(row);
 }
 
-// ---------------------------------------------------------------------------
-// Audit and officers
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/* Accounts and roles                                                   */
+/* ------------------------------------------------------------------ */
+
+export async function issueSetupCode(memberId: string): Promise<SetupCodeResult> {
+  const { s } = await asAdmin();
+  const member = findMember(s, memberId);
+  if (!member.isActive) throw new ApiError("This member is no longer active.", "inactive");
+  const setupCode = await run<string>(sb().rpc("issue_setup_code", { p_member: memberId }));
+  changed();
+  // The code is shown once, here, and is never saved on this device.
+  return { setupCode, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString() };
+}
+
+export async function unlockMember(memberId: string): Promise<Member> {
+  await asAdmin();
+  await run(sb().rpc("unlock_member", { p_member: memberId }));
+  changed();
+  const row = await run<Row>(sb().from("members").select("*").eq("id", memberId).single());
+  return toMember(row);
+}
+
+export async function setRole(memberId: string, role: Role, position: Position): Promise<Member> {
+  const { s } = await asSuperAdmin();
+  const member = findMember(s, memberId);
+  const finalPosition = role === "member" ? null : position;
+  if (role !== "member" && !finalPosition)
+    throw new ApiError("Choose their position.", "invalid");
+  // Each office is held by one person at a time.
+  const holder = finalPosition
+    ? s.members.find((m) => m.id !== member.id && m.isActive && m.position === finalPosition)
+    : undefined;
+  if (holder)
+    throw new ApiError(
+      `${holder.fullName} is the ${finalPosition} now. Change their role first.`,
+      "invalid",
+    );
+  const row = await run<Row>(
+    sb()
+      .from("members")
+      .update({ role, position: finalPosition })
+      .eq("id", memberId)
+      .select()
+      .single(),
+  );
+  changed();
+  return toMember(row);
+}
 
 export async function listAudit(filters: AuditFilters = {}): Promise<AuditEntry[]> {
-  let query = sb().from("audit_logs").select("*").order("created_at", { ascending: false }).limit(filters.limit ?? 200);
-  if (filters.table) query = query.eq("table_name", filters.table);
-  const rows = await run(query);
-  return rows.map(toAudit);
+  await asSuperAdmin();
+  let q = sb().from("audit_logs").select("*").order("id", { ascending: false }).limit(1000);
+  if (filters.table) q = q.eq("table_name", filters.table);
+  const rows = (await run<Row[]>(q)).map(toAudit);
+  // Searching here, not in the database, keeps typed text out of the query.
+  const search = filters.search?.trim().toLowerCase() ?? "";
+  return rows
+    .filter((a) => !search || `${a.actorName} ${a.action} ${a.summary}`.toLowerCase().includes(search))
+    .slice(0, 300);
 }
 
-/** Officer names and positions (for receipts, handovers, the Roles screen). Everyone signed in can read this short list. */
-export async function listOfficers(): Promise<Member[]> {
-  const rows = (await run(sb().rpc("list_officers"))) as {
-    id: string;
-    member_code: string;
-    full_name: string;
-    role: MemberRole;
-    position: string | null;
-  }[];
-  return rows.map((r) => ({
-    id: r.id,
-    memberCode: r.member_code,
-    fullName: r.full_name,
-    phone: "",
-    drive: "",
-    category: "executive",
-    role: r.role,
-    position: (r.position as OfficerPosition | null) ?? null,
-    isActive: true,
-    leftOn: null,
-    isActivated: true,
-    isLocked: false,
-  }));
+/* ------------------------------------------------------------------ */
+/* Demo-only tools: never available on real data                        */
+/* ------------------------------------------------------------------ */
+
+export async function devPreviewAs(_memberCode: string): Promise<Session> {
+  throw new ApiError("Preview is only available on demo data.", "forbidden");
 }
 
-/** Only meaningful with test data. */
-export const DEV_SIGN_IN_HINTS = { memberPin: "", officerPassword: "", officerCode: "", setupCodes: "" };
+export async function devResetMockData(): Promise<void> {
+  throw new ApiError("Reset is only available on demo data.", "forbidden");
+}

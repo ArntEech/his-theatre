@@ -1,0 +1,78 @@
+/**
+ * Tab bar glyphs drawn in the style of SF Symbols: an outline for unselected tabs and a
+ * filled variant for the selected tab.
+ */
+type IconProps = { filled?: boolean; className?: string };
+
+const common = {
+  viewBox: "0 0 24 24",
+  "aria-hidden": true,
+  strokeWidth: 1.8,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+
+export function HomeGlyph({ filled, className }: IconProps) {
+  const d =
+    "M3.5 10.2 12 3.2l8.5 7V19a1.8 1.8 0 0 1-1.8 1.8H15v-5.6a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v5.6H5.3A1.8 1.8 0 0 1 3.5 19z";
+  return (
+    <svg
+      {...common}
+      className={className}
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+    >
+      <path d={d} />
+    </svg>
+  );
+}
+
+export function DuesGlyph({ filled, className }: IconProps) {
+  return filled ? (
+    <svg {...common} className={className} fill="currentColor" stroke="currentColor">
+      <path d="M3.5 8a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3v1.2h-17z" />
+      <path d="M3.5 11.2h17V18a3 3 0 0 1-3 3h-11a3 3 0 0 1-3-3z" />
+      <path d="M8 3v3M16 3v3" fill="none" />
+    </svg>
+  ) : (
+    <svg {...common} className={className} fill="none" stroke="currentColor">
+      <rect x="3.5" y="5" width="17" height="16" rx="3" />
+      <path d="M3.5 10h17M8 3v3M16 3v3" />
+      <path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01" strokeWidth={2.4} />
+    </svg>
+  );
+}
+
+export function AdminGlyph({ filled, className }: IconProps) {
+  const d =
+    "M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z";
+  return (
+    <svg
+      {...common}
+      className={className}
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+    >
+      <path d={d} />
+      <path
+        d="M15 6.5v11"
+        strokeDasharray="1.6 2.2"
+        stroke={filled ? "var(--grouped)" : "currentColor"}
+      />
+    </svg>
+  );
+}
+
+export function ProfileGlyph({ filled, className }: IconProps) {
+  return (
+    <svg
+      {...common}
+      className={className}
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+    >
+      <circle cx="12" cy="8" r="4" />
+      <path d={filled ? "M4 20.5a8 8 0 0 1 16 0z" : "M4 20.5a8 8 0 0 1 16 0"} />
+    </svg>
+  );
+}

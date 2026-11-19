@@ -1,26 +1,39 @@
-// Shared data types for His Theatre.
-// MONEY RULE: every amount is an integer number of pesewas (GH₵1 = 100). Never decimals.
+/**
+ * Shared data types for His Theatre.
+ *
+ * Money is ALWAYS an integer number of pesewas (GH₵1 = 100). Never use decimals for money.
+ */
 
 export type Pesewas = number;
-export type ISODate = string; // "2026-11-09"
-export type ISODateTime = string; // full ISO timestamp
+/** ISO calendar date, e.g. "2026-11-09". */
+export type IsoDate = string;
+/** ISO timestamp, e.g. "2026-11-09T14:30:00.000Z". */
+export type IsoDateTime = string;
 
 export type MemberCategory = "member" | "executive";
-export type MemberRole = "member" | "admin" | "super_admin";
-export type OfficerPosition = "Financial Secretary" | "Treasurer" | "Director";
+export type Role = "member" | "admin" | "super_admin";
+export type Position = "Financial Secretary" | "Treasurer" | "Director" | null;
 export type PaymentMethod = "cash" | "momo";
+export type IncomeSource =
+  | "donation"
+  | "offering"
+  | "ticket_sales"
+  | "fundraising"
+  | "levy"
+  | "other";
 
 export interface Member {
   id: string;
-  memberCode: string; // "HIS-012"
+  /** e.g. "HIS-012" */
+  memberCode: string;
   fullName: string;
   phone: string;
   drive: string;
   category: MemberCategory;
-  role: MemberRole;
-  position: OfficerPosition | null;
+  role: Role;
+  position: Position;
   isActive: boolean;
-  leftOn: ISODate | null;
+  leftOn: IsoDate | null;
   isActivated: boolean;
   isLocked: boolean;
 }
@@ -28,8 +41,8 @@ export interface Member {
 export interface Semester {
   id: string;
   name: string;
-  startsOn: ISODate;
-  endsOn: ISODate;
+  startsOn: IsoDate;
+  endsOn: IsoDate;
   isClosed: boolean;
 }
 
@@ -37,7 +50,8 @@ export interface SemesterWeek {
   id: string;
   semesterId: string;
   weekNo: number;
-  weekStart: ISODate; // Monday
+  /** Monday of the week, ISO date. */
+  weekStart: IsoDate;
   counts: boolean;
   label?: string;
 }
@@ -59,82 +73,82 @@ export interface Adjustment {
   id: string;
   memberId: string;
   semesterId: string;
-  amount: Pesewas; // negative = waiver
+  /** Negative = waiver, positive = extra charge. */
+  amount: Pesewas;
   reason: string;
   recordedBy: string;
-  createdAt: ISODateTime;
+  createdAt: IsoDateTime;
 }
 
 export interface Payment {
   id: string;
-  receiptNo: string; // "R-0001"
+  /** e.g. "R-0001" */
+  receiptNo: string;
   memberId: string;
   semesterId: string;
-  amount: Pesewas; // negative when it reverses another payment
+  /** Negative for reversals. */
+  amount: Pesewas;
   method: PaymentMethod;
   momoReference?: string;
-  paidOn: ISODate;
+  paidOn: IsoDate;
   note?: string;
   reversesPaymentId?: string;
   idempotencyKey: string;
   recordedBy: string;
-  createdAt: ISODateTime;
+  createdAt: IsoDateTime;
 }
 
 export interface Expense {
   id: string;
-  ref: string; // "E-0001"
+  /** e.g. "E-0001" */
+  ref: string;
   description: string;
   category: string;
+  /** Negative for reversals. */
   amount: Pesewas;
   paidBy: string;
   approvedBy: string;
   receiptRef?: string;
-  date: ISODate;
+  date: IsoDate;
   reversesId?: string;
   recordedBy: string;
-  createdAt: ISODateTime;
+  createdAt: IsoDateTime;
 }
-
-export type IncomeSource =
-  | "donation"
-  | "offering"
-  | "ticket_sales"
-  | "fundraising"
-  | "levy"
-  | "other";
 
 export interface OtherIncome {
   id: string;
-  ref: string; // "I-0001"
+  /** e.g. "I-0001" */
+  ref: string;
   source: IncomeSource;
   description: string;
+  /** Negative for reversals. */
   amount: Pesewas;
   method: PaymentMethod;
-  date: ISODate;
+  date: IsoDate;
   reversesId?: string;
   recordedBy: string;
-  createdAt: ISODateTime;
+  createdAt: IsoDateTime;
 }
 
 export interface Handover {
   id: string;
-  ref: string; // "H-0001"
+  /** e.g. "H-0001" */
+  ref: string;
   fromMemberId: string;
   toMemberId: string;
   amount: Pesewas;
-  recordedAt: ISODateTime;
-  confirmedAt: ISODateTime | null;
+  recordedAt: IsoDateTime;
+  confirmedAt: IsoDateTime | null;
 }
 
 export interface AuditEntry {
   id: string;
   actorName: string;
-  actorPosition: string;
+  actorPosition: Position;
   action: string;
   table: string;
   summary: string;
-  createdAt: ISODateTime;
+  createdAt: IsoDateTime;
 }
 
 export interface DuesSummary {
@@ -152,9 +166,87 @@ export interface DuesSummary {
   weeksBehind: number;
 }
 
+/* ------------------------------------------------------------------ */
+/* View types returned by the API                                       */
+/* ------------------------------------------------------------------ */
+
 export type DuesStatus = "paid_up" | "behind" | "ahead";
 
-// ----- API input / output shapes -----
+export interface Session {
+  member: Member;
+}
+
+export interface OfficerChallenge {
+  /**
+   * Only on an officer's first sign-in: scan this into an authenticator app
+   * (Google Authenticator, Microsoft Authenticator…), then enter the code it shows.
+   */
+  setup?: { qrCode: string; secret: string };
+}
+
+export interface SemesterDetail extends Semester {
+  weeks: SemesterWeek[];
+  rates: DuesRate[];
+  /** Today's date according to the server. */
+  today: IsoDate;
+  /** The week containing today, or null when outside the semester. */
+  currentWeekNo: number | null;
+}
+
+export type ScheduleWeekState =
+  | "not_counted"
+  | "not_applicable"
+  | "covered"
+  | "waived"
+  | "part_paid"
+  | "owing"
+  | "upcoming";
+
+export interface ScheduleWeek {
+  weekNo: number;
+  weekStart: IsoDate;
+  label?: string;
+  state: ScheduleWeekState;
+  amount: Pesewas;
+}
+
+export interface AdjustmentRow extends Adjustment {
+  recordedByName: string;
+}
+
+export interface PaymentRow extends Payment {
+  memberName: string;
+  memberCode: string;
+  recordedByName: string;
+  /** Receipt number of the reversal that voided this payment, if any. */
+  voidedBy: string | null;
+  /** Receipt number of the payment this row reverses, if it is a reversal. */
+  reversesReceiptNo: string | null;
+}
+
+export interface ExpenseRow extends Expense {
+  recordedByName: string;
+  voidedBy: string | null;
+  reversesRef: string | null;
+}
+
+export interface IncomeRow extends OtherIncome {
+  recordedByName: string;
+  voidedBy: string | null;
+  reversesRef: string | null;
+}
+
+export interface HandoverRow extends Handover {
+  fromName: string;
+  toName: string;
+}
+
+export interface MyDues extends DuesSummary {
+  status: DuesStatus;
+  schedule: ScheduleWeek[];
+  adjustments: AdjustmentRow[];
+  nextDue: { weekStart: IsoDate; amount: Pesewas } | null;
+}
 
 export interface MemberFilters {
   search?: string;
@@ -163,24 +255,125 @@ export interface MemberFilters {
   includeInactive?: boolean;
 }
 
-export interface MemberWithDues extends Member {
+export interface MemberListItem {
+  member: Member;
   dues: DuesSummary | null;
   status: DuesStatus | null;
 }
+
+export interface MemberDetail {
+  member: Member;
+  semesterId: string | null;
+  memberSemester: MemberSemester | null;
+  dues: MyDues | null;
+  payments: PaymentRow[];
+  adjustments: AdjustmentRow[];
+}
+
+export interface CashHolder {
+  memberId: string;
+  fullName: string;
+  position: Position;
+  /** Cash dues and cash income this officer recorded. */
+  collected: Pesewas;
+  /** Confirmed handovers received. */
+  received: Pesewas;
+  /** Handovers given (pending and confirmed). */
+  handedOver: Pesewas;
+  /** Expenses this officer recorded (paid out of the cash they hold). */
+  spent: Pesewas;
+  holding: Pesewas;
+}
+
+export interface CashPosition {
+  totalIn: Pesewas;
+  totalOut: Pesewas;
+  balance: Pesewas;
+  cashIn: Pesewas;
+  momoIn: Pesewas;
+  inTransit: Pesewas;
+  holders: CashHolder[];
+  pendingHandovers: HandoverRow[];
+  handovers: HandoverRow[];
+}
+
+export interface TodayReport {
+  date: IsoDate;
+  /** Net money in today: dues + other income − expenses. */
+  net: Pesewas;
+  duesTotal: Pesewas;
+  duesCash: Pesewas;
+  duesMomo: Pesewas;
+  incomeTotal: Pesewas;
+  expensesTotal: Pesewas;
+  payments: PaymentRow[];
+  income: IncomeRow[];
+  expenses: ExpenseRow[];
+  handovers: HandoverRow[];
+  pendingHandovers: HandoverRow[];
+  myCashHolding: Pesewas;
+}
+
+export interface DriveSummary {
+  drive: string;
+  members: number;
+  paidUp: number;
+  behind: number;
+  ahead: number;
+  owing: Pesewas;
+  paid: Pesewas;
+}
+
+export interface Dashboard {
+  semester: SemesterDetail;
+  activeMembers: number;
+  dueSoFar: Pesewas;
+  semesterTotal: Pesewas;
+  collected: Pesewas;
+  owingTotal: Pesewas;
+  creditTotal: Pesewas;
+  counts: Record<DuesStatus, number>;
+  drives: DriveSummary[];
+  mostBehind: MemberListItem[];
+  balance: Pesewas;
+  pendingHandovers: number;
+  collectedToday: Pesewas;
+}
+
+export interface Report {
+  from: IsoDate;
+  to: IsoDate;
+  dues: { cash: Pesewas; momo: Pesewas; reversals: Pesewas; net: Pesewas; receipts: number };
+  income: { bySource: { source: IncomeSource; amount: Pesewas }[]; total: Pesewas };
+  expenses: { byCategory: { category: string; amount: Pesewas }[]; total: Pesewas };
+  totalIn: Pesewas;
+  totalOut: Pesewas;
+  net: Pesewas;
+  payments: PaymentRow[];
+  incomeRows: IncomeRow[];
+  expenseRows: ExpenseRow[];
+  handovers: HandoverRow[];
+}
+
+export interface AuditFilters {
+  table?: string;
+  search?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Inputs                                                               */
+/* ------------------------------------------------------------------ */
 
 export interface NewMemberInput {
   fullName: string;
   phone: string;
   drive: string;
   category: MemberCategory;
+  /** Week of the current semester their dues start. */
+  startWeekNo: number;
 }
 
-export interface UpdateMemberInput {
-  fullName?: string;
-  phone?: string;
-  drive?: string;
-  category?: MemberCategory;
-}
+export type MemberUpdate = Partial<Pick<Member, "fullName" | "phone" | "drive" | "category">>;
 
 export interface RecordPaymentInput {
   memberId: string;
@@ -188,8 +381,9 @@ export interface RecordPaymentInput {
   amount: Pesewas;
   method: PaymentMethod;
   momoReference?: string;
-  paidOn: ISODate;
+  paidOn: IsoDate;
   note?: string;
+  /** Generated once per payment form; retrying with the same key never double-records. */
   idempotencyKey: string;
 }
 
@@ -207,7 +401,7 @@ export interface ExpenseInput {
   paidBy: string;
   approvedBy: string;
   receiptRef?: string;
-  date: ISODate;
+  date: IsoDate;
 }
 
 export interface IncomeInput {
@@ -215,7 +409,7 @@ export interface IncomeInput {
   description: string;
   amount: Pesewas;
   method: PaymentMethod;
-  date: ISODate;
+  date: IsoDate;
 }
 
 export interface HandoverInput {
@@ -223,89 +417,49 @@ export interface HandoverInput {
   amount: Pesewas;
 }
 
-export interface CashHolder {
-  memberId: string;
-  fullName: string;
-  position: OfficerPosition | null;
-  cash: Pesewas;
-}
-
-export interface CashPosition {
-  balance: Pesewas; // everything in minus everything out
-  cash: Pesewas;
-  momo: Pesewas;
-  holders: CashHolder[];
-  inTransit: Pesewas; // handovers not yet confirmed
-  pendingHandovers: Handover[];
-}
-
-export interface TodaySummary {
-  date: ISODate;
-  collected: Pesewas;
-  collectedCash: Pesewas;
-  collectedMomo: Pesewas;
-  spent: Pesewas;
-  payments: Payment[];
-  income: OtherIncome[];
-  expenses: Expense[];
-  handovers: Handover[];
-}
-
-export interface Dashboard {
-  semester: Semester;
-  memberCount: number;
-  paidUp: number;
-  behind: number;
-  ahead: number;
-  dueSoFar: Pesewas;
-  collected: Pesewas;
-  owing: Pesewas;
-  semesterTotal: Pesewas;
-}
-
-export interface Report {
-  from: ISODate;
-  to: ISODate;
-  openingBalance: Pesewas;
-  closingBalance: Pesewas;
-  duesByDrive: Record<string, Pesewas>;
-  duesCollected: Pesewas;
-  duesCash: Pesewas;
-  duesMomo: Pesewas;
-  incomeBySource: Record<IncomeSource, Pesewas>;
-  incomeTotal: Pesewas;
-  expensesByCategory: Record<string, Pesewas>;
-  expensesTotal: Pesewas;
-  net: Pesewas;
-  payments: Payment[];
-  income: OtherIncome[];
-  expenses: Expense[];
-}
-
 export interface SemesterInput {
   id?: string;
   name: string;
-  startsOn: ISODate;
-  endsOn: ISODate;
+  startsOn: IsoDate;
+  endsOn: IsoDate;
 }
 
-/** After email + password: either enter a code from the authenticator app, or (first time) set one up. */
-export type OfficerSignInResult =
-  | { needsCode: true; hint: string }
-  | { needsEnrollment: true; hint: string; qrCode: string; secret: string };
-
-export interface AuditFilters {
-  table?: string;
-  limit?: number;
+export interface RatesInput {
+  executive: Pesewas;
+  member: Pesewas;
 }
 
-export interface ReceiptView {
-  payment: Payment;
-  memberName: string;
-  memberCode: string;
-  recordedByName: string;
-  recordedByPosition: OfficerPosition | null;
-  reversed: boolean;
+export interface SetupCodeResult {
+  setupCode: string;
+  expiresAt: IsoDateTime;
 }
 
-export type PreviewRole = "member" | "financial_secretary" | "treasurer" | "director";
+export class ApiError extends Error {
+  code: string;
+  constructor(message: string, code = "error") {
+    super(message);
+    this.name = "ApiError";
+    this.code = code;
+  }
+}
+
+export const INCOME_SOURCE_LABELS: Record<IncomeSource, string> = {
+  donation: "Donation",
+  offering: "Offering",
+  ticket_sales: "Ticket sales",
+  fundraising: "Fundraising",
+  levy: "Levy",
+  other: "Other",
+};
+
+export const EXPENSE_CATEGORIES = [
+  "Costumes",
+  "Props & set",
+  "Transport",
+  "Venue",
+  "Refreshments",
+  "Printing",
+  "Sound & lighting",
+  "Welfare",
+  "Other",
+] as const;

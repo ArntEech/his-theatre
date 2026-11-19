@@ -1,35 +1,35 @@
-import { Check, ArrowUpRight, Clock } from "lucide-react";
-
+import { CircleArrowUp, CircleCheck, Clock } from "lucide-react";
 import type { DuesStatus } from "@/data/types";
-import { STATUS_LABEL } from "@/lib/dues";
-import { cn } from "@/lib/utils";
+import { STATUS_LABELS } from "@/lib/dues";
+import { cx } from "@/lib/cx";
 
 const styles: Record<DuesStatus, string> = {
-  paid_up: "text-status-paid border-status-paid/40 bg-status-paid/10",
-  behind: "text-status-behind border-status-behind/40 bg-status-behind/10",
-  ahead: "text-status-ahead border-status-ahead/40 bg-status-ahead/10",
+  paid_up: "bg-paid/14 text-paid-text",
+  behind: "bg-behind/14 text-behind-text",
+  ahead: "bg-ahead/14 text-ahead-text",
 };
-const icons = { paid_up: Check, behind: Clock, ahead: ArrowUpRight };
 
-/** Status is always shown in words, never colour alone. */
+const icons = { paid_up: CircleCheck, behind: Clock, ahead: CircleArrowUp };
+
+/** Status is always shown in words as well as colour. */
 export function StatusBadge({ status, className }: { status: DuesStatus; className?: string }) {
   const Icon = icons[status];
   return (
     <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-semibold",
+      className={cx(
+        "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-footnote font-semibold whitespace-nowrap",
         styles[status],
         className,
       )}
     >
-      <Icon className="size-4" aria-hidden />
-      {STATUS_LABEL[status]}
+      <Icon aria-hidden className="size-3.5" strokeWidth={2.6} />
+      {STATUS_LABELS[status]}
     </span>
   );
 }
 
-export const statusTextClass: Record<DuesStatus, string> = {
-  paid_up: "text-status-paid",
-  behind: "text-status-behind",
-  ahead: "text-status-ahead",
+export const STATUS_TEXT: Record<DuesStatus, string> = {
+  paid_up: "text-paid-text",
+  behind: "text-behind-text",
+  ahead: "text-ahead-text",
 };

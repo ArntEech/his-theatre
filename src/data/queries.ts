@@ -1,72 +1,146 @@
-// Query definitions for TanStack Query. Every function here calls src/data/api.ts — never mock data.
-import { queryOptions } from "@tanstack/react-query";
-
+/**
+ * TanStack Query hooks over src/data/api.ts.
+ * Screens use these hooks (or api.ts directly); they never touch mock data.
+ */
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "./api";
-import type { AuditFilters, ISODate, MemberFilters } from "./types";
+import {
+  ApiError,
+  type AuditFilters,
+  type IsoDate,
+  type Member,
+  type MemberFilters,
+} from "./types";
+import { isOnline, OFFLINE_MESSAGE } from "@/lib/online";
 
-export const qk = {
-  all: ["his"] as const,
+export const keys = {
+  me: ["me"] as const,
+  currentSemester: ["semester", "current"] as const,
+  semesters: ["semesters"] as const,
+  myDues: (semesterId: string) => ["myDues", semesterId] as const,
+  myPayments: (semesterId: string) => ["myPayments", semesterId] as const,
+  members: (filters: MemberFilters) => ["members", filters] as const,
+  member: (id: string) => ["member", id] as const,
+  today: ["today"] as const,
+  dashboard: (semesterId: string) => ["dashboard", semesterId] as const,
+  report: (from: IsoDate, to: IsoDate) => ["report", from, to] as const,
+  cash: ["cash"] as const,
+  audit: (filters: AuditFilters) => ["audit", filters] as const,
 };
 
-export const currentMemberQuery = () =>
-  queryOptions({ queryKey: [...qk.all, "me"], queryFn: api.getCurrentMember, staleTime: Infinity });
+export function useCurrentMember() {
+  return useQuery({ queryKey: keys.me, queryFn: api.getCurrentMember, staleTime: Infinity });
+}
 
-export const currentSemesterQuery = () =>
-  queryOptions({ queryKey: [...qk.all, "semester", "current"], queryFn: api.getCurrentSemester });
+export function useCurrentSemester() {
+  return useQuery({ queryKey: keys.currentSemester, queryFn: api.getCurrentSemester });
+}
 
-export const semestersQuery = () =>
-  queryOptions({ queryKey: [...qk.all, "semesters"], queryFn: api.listSemesters });
+export function useSemesters() {
+  return useQuery({ queryKey: keys.semesters, queryFn: api.listSemesters });
+}
 
-export const semesterWeeksQuery = (semesterId: string) =>
-  queryOptions({ queryKey: [...qk.all, "weeks", semesterId], queryFn: () => api.getSemesterWeeks(semesterId) });
+export function useMyDues(semesterId: string | undefined) {
+  return useQuery({
+    queryKey: keys.myDues(semesterId ?? ""),
+    queryFn: () => api.getMyDues(semesterId!),
+    enabled: Boolean(semesterId),
+  });
+}
 
-export const ratesQuery = (semesterId: string) =>
-  queryOptions({ queryKey: [...qk.all, "rates", semesterId], queryFn: () => api.getRates(semesterId) });
+export function useMyPayments(semesterId: string | undefined) {
+  return useQuery({
+    queryKey: keys.myPayments(semesterId ?? ""),
+    queryFn: () => api.getMyPayments(semesterId!),
+    enabled: Boolean(semesterId),
+  });
+}
 
-export const myDuesQuery = (semesterId: string) =>
-  queryOptions({ queryKey: [...qk.all, "my-dues", semesterId], queryFn: () => api.getMyDues(semesterId) });
+export function useMembers(filters: MemberFilters) {
+  return useQuery({
+    queryKey: keys.members(filters),
+    queryFn: () => api.listMembers(filters),
+    placeholderData: (prev) => prev,
+  });
+}
 
-export const myMembershipQuery = (semesterId: string) =>
-  queryOptions({ queryKey: [...qk.all, "my-membership", semesterId], queryFn: () => api.getMyMembership(semesterId) });
+export function useMember(id: string | undefined) {
+  return useQuery({
+    queryKey: keys.member(id ?? ""),
+    queryFn: () => api.getMember(id!),
+    enabled: Boolean(id),
+  });
+}
 
-export const myPaymentsQuery = (semesterId: string) =>
-  queryOptions({ queryKey: [...qk.all, "my-payments", semesterId], queryFn: () => api.getMyPayments(semesterId) });
+export function useToday(enabled = true) {
+  return useQuery({ queryKey: keys.today, queryFn: api.getToday, enabled });
+}
 
-export const membersQuery = (filters: MemberFilters = {}) =>
-  queryOptions({ queryKey: [...qk.all, "members", filters], queryFn: () => api.listMembers(filters) });
+export function useDashboard(semesterId: string | undefined) {
+  return useQuery({
+    queryKey: keys.dashboard(semesterId ?? ""),
+    queryFn: () => api.getDashboard(semesterId!),
+    enabled: Boolean(semesterId),
+  });
+}
 
-export const drivesQuery = () =>
-  queryOptions({ queryKey: [...qk.all, "drives"], queryFn: api.listDrives });
+export function useReport(from: IsoDate, to: IsoDate, enabled = true) {
+  return useQuery({
+    queryKey: keys.report(from, to),
+    queryFn: () => api.getReport(from, to),
+    enabled: enabled && Boolean(from && to) && from <= to,
+    placeholderData: (prev) => prev,
+  });
+}
 
-export const memberQuery = (id: string) =>
-  queryOptions({ queryKey: [...qk.all, "member", id], queryFn: () => api.getMember(id) });
+export function useCashPosition() {
+  return useQuery({ queryKey: keys.cash, queryFn: api.getCashPosition });
+}
 
-export const officersQuery = () =>
-  queryOptions({ queryKey: [...qk.all, "officers"], queryFn: api.listOfficers });
+export function useAudit(filters: AuditFilters) {
+  return useQuery({
+    queryKey: keys.audit(filters),
+    queryFn: () => api.listAudit(filters),
+    placeholderData: (prev) => prev,
+  });
+}
 
-export const todayQuery = () =>
-  queryOptions({ queryKey: [...qk.all, "today"], queryFn: api.getToday });
+/**
+ * Wraps an api mutation. Money and records touch many screens at once,
+ * so every successful change refreshes all cached data except the signed-in member.
+ */
+export function useApiMutation<TArgs extends unknown[], TResult>(
+  fn: (...args: TArgs) => Promise<TResult>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (args: TArgs) => guardOnline(() => fn(...args)),
+    onSuccess: () => queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "me" }),
+  });
+}
 
-export const cashPositionQuery = () =>
-  queryOptions({ queryKey: [...qk.all, "cash-position"], queryFn: api.getCashPosition });
+/** For sign in / out and role switches, which change who is looking. */
+export function useSessionMutation<TArgs extends unknown[], TResult>(
+  fn: (...args: TArgs) => Promise<TResult>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (args: TArgs) => guardOnline(() => fn(...args)),
+    onSuccess: async (data) => {
+      // Never leave one person's records cached for the next person on this phone.
+      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" });
+      const session = data as { member?: Member } | undefined;
+      if (session && typeof session === "object" && session.member) {
+        queryClient.setQueryData(keys.me, session.member);
+      } else if (data === undefined) {
+        queryClient.setQueryData(keys.me, null);
+      }
+    },
+  });
+}
 
-export const dashboardQuery = (semesterId: string) =>
-  queryOptions({ queryKey: [...qk.all, "dashboard", semesterId], queryFn: () => api.getDashboard(semesterId) });
-
-export const reportQuery = (from: ISODate, to: ISODate) =>
-  queryOptions({ queryKey: [...qk.all, "report", from, to], queryFn: () => api.getReport(from, to) });
-
-export const expensesQuery = () =>
-  queryOptions({ queryKey: [...qk.all, "expenses"], queryFn: api.listExpenses });
-
-export const incomeQuery = () =>
-  queryOptions({ queryKey: [...qk.all, "income"], queryFn: api.listIncome });
-
-export const handoversQuery = () =>
-  queryOptions({ queryKey: [...qk.all, "handovers"], queryFn: api.listHandovers });
-
-export const receiptQuery = (paymentId: string) =>
-  queryOptions({ queryKey: [...qk.all, "receipt", paymentId], queryFn: () => api.getReceipt(paymentId) });
-
-export const auditQuery =(filters: AuditFilters = {}) =>
-  queryOptions({ queryKey: [...qk.all, "audit", filters], queryFn: () => api.listAudit(filters) });
+/** Changes need the server. Offline, fail straight away with a clear message instead of hanging. */
+function guardOnline<T>(run: () => Promise<T>): Promise<T> {
+  if (!isOnline()) return Promise.reject(new ApiError(OFFLINE_MESSAGE, "offline"));
+  return run();
+}
