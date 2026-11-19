@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { ChoiceGroup, Field } from "@/components/Field";
 import { Logo } from "@/components/Logo";
+import { SecretInput } from "@/components/SecretInput";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import * as api from "@/data/api";
@@ -99,7 +100,6 @@ function FormError({ error }: { error: string | null }) {
 }
 
 const pinProps = {
-  type: "password",
   inputMode: "numeric",
   pattern: "[0-9]*",
   maxLength: 4,
@@ -117,7 +117,7 @@ function MemberForm({ onDone }: { onDone: (m: Member) => void }) {
         <Input id="member-code" value={code} onChange={(e) => setCode(e.target.value)} autoCapitalize="characters" placeholder="HIS-000" required />
       </Field>
       <Field id="member-pin" label="4-digit PIN">
-        <Input id="member-pin" {...pinProps} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} required />
+        <SecretInput id="member-pin" {...pinProps} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} required />
       </Field>
       <FormError error={error} />
       <Button type="submit" size="lg" className="w-full" disabled={busy}>
@@ -149,10 +149,10 @@ function ActivateForm({ onDone }: { onDone: (m: Member) => void }) {
         <Input id="act-setup" inputMode="numeric" value={setup} onChange={(e) => setSetup(e.target.value.replace(/\D/g, ""))} maxLength={6} className="num text-xl tracking-widest" required />
       </Field>
       <Field id="act-pin" label="Choose a 4-digit PIN">
-        <Input id="act-pin" {...pinProps} autoComplete="new-password" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} required />
+        <SecretInput id="act-pin" {...pinProps} autoComplete="new-password" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} required />
       </Field>
       <Field id="act-confirm" label="Type the PIN again">
-        <Input id="act-confirm" {...pinProps} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ""))} required />
+        <SecretInput id="act-confirm" {...pinProps} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ""))} required />
       </Field>
       <FormError error={error} />
       <Button type="submit" size="lg" className="w-full" disabled={busy}>
@@ -200,7 +200,7 @@ function OfficerForm({ onDone }: { onDone: (m: Member) => void }) {
         <Input id="off-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
       </Field>
       <Field id="off-password" label="Password">
-        <Input id="off-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <SecretInput id="off-password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
       </Field>
       <FormError error={first.error} />
       <Button type="submit" size="lg" className="w-full" disabled={first.busy}>

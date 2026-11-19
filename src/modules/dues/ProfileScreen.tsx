@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { Field } from "@/components/Field";
+import { SecretInput } from "@/components/SecretInput";
 import { FormSheet } from "@/components/FormSheet";
 import { PageHeader, SectionTitle } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -91,18 +92,18 @@ function ChangePinSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
     }
   }
 
-  const pin = { type: "password", inputMode: "numeric", maxLength: 4, className: "num text-center text-2xl tracking-[0.6em]" } as const;
+  const pin = { inputMode: "numeric", maxLength: 4, className: "num text-center text-2xl tracking-[0.6em]" } as const;
   return (
     <FormSheet open={open} onOpenChange={onOpenChange} title="Change my PIN">
       <form onSubmit={submit} className="space-y-4">
         <Field id="pin-current" label="Current PIN">
-          <Input id="pin-current" {...pin} autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value.replace(/\D/g, ""))} required />
+          <SecretInput id="pin-current" {...pin} autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value.replace(/\D/g, ""))} required />
         </Field>
         <Field id="pin-new" label="New 4-digit PIN">
-          <Input id="pin-new" {...pin} autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value.replace(/\D/g, ""))} required />
+          <SecretInput id="pin-new" {...pin} autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value.replace(/\D/g, ""))} required />
         </Field>
         <Field id="pin-confirm" label="Type the new PIN again">
-          <Input id="pin-confirm" {...pin} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ""))} required />
+          <SecretInput id="pin-confirm" {...pin} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ""))} required />
         </Field>
         <Button type="submit" size="lg" className="w-full" disabled={busy}>
           {busy ? "Saving…" : "Save new PIN"}
