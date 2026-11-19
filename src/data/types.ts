@@ -289,7 +289,10 @@ export interface SemesterInput {
   endsOn: ISODate;
 }
 
-export type OfficerSignInResult = { needsCode: true; hint: string };
+/** After email + password: either enter a code from the authenticator app, or (first time) set one up. */
+export type OfficerSignInResult =
+  | { needsCode: true; hint: string }
+  | { needsEnrollment: true; hint: string; qrCode: string; secret: string };
 
 export interface AuditFilters {
   table?: string;

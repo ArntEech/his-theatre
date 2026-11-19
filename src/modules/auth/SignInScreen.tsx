@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import * as api from "@/data/api";
 import { currentMemberQuery, qk } from "@/data/queries";
 import type { Member } from "@/data/types";
+import { normalizeMemberCode } from "@/lib/member-code";
 
 type Mode = "member" | "activate" | "officer";
 
@@ -113,8 +114,8 @@ function MemberForm({ onDone }: { onDone: (m: Member) => void }) {
   const { busy, error, submit } = useSubmit(() => api.signInMember(code, pin), onDone);
   return (
     <form onSubmit={submit} className="space-y-4">
-      <Field id="member-code" label="Member ID" hint="It looks like HIS-012.">
-        <Input id="member-code" value={code} onChange={(e) => setCode(e.target.value)} autoCapitalize="characters" placeholder="HIS-000" required />
+      <Field id="member-code" label="Member ID" hint="It looks like HIS-012. You can just type 12.">
+        <Input id="member-code" value={code} onChange={(e) => setCode(e.target.value)} onBlur={() => setCode(normalizeMemberCode(code))} autoCapitalize="characters" autoComplete="username" placeholder="HIS-000" required />
       </Field>
       <Field id="member-pin" label="4-digit PIN">
         <SecretInput id="member-pin" {...pinProps} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} required />
@@ -143,7 +144,7 @@ function ActivateForm({ onDone }: { onDone: (m: Member) => void }) {
     <form onSubmit={submit} className="space-y-4">
       <p className="text-muted-foreground">Use the setup code the Financial Secretary gave you, then choose your own PIN.</p>
       <Field id="act-code" label="Member ID">
-        <Input id="act-code" value={code} onChange={(e) => setCode(e.target.value)} autoCapitalize="characters" placeholder="HIS-000" required />
+        <Input id="act-code" value={code} onChange={(e) => setCode(e.target.value)} onBlur={() => setCode(normalizeMemberCode(code))} autoCapitalize="characters" autoComplete="username" placeholder="HIS-000" required />
       </Field>
       <Field id="act-setup" label="Setup code">
         <Input id="act-setup" inputMode="numeric" value={setup} onChange={(e) => setSetup(e.target.value.replace(/\D/g, ""))} maxLength={6} className="num text-xl tracking-widest" required />
@@ -168,9 +169,11 @@ function OfficerForm({ onDone }: { onDone: (m: Member) => void }) {
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [hint, setHint] = useState("");
+  const [authSetup, setAuthSetup] = useState<{ qrCode: string; secret: string } | null>(null);
 
   const first = useSubmit(() => api.signInOfficer(email, password), (r) => {
     setHint(r.hint);
+    setAuthSetup("needsEnrollment" in r ? { qrCode: r.qrCode, secret: r.secret } : null);
     setStep("code");
   });
   const second = useSubmit(() => api.verifyOfficerCode(code), onDone);
@@ -178,6 +181,16 @@ function OfficerForm({ onDone }: { onDone: (m: Member) => void }) {
   if (step === "code") {
     return (
       <form onSubmit={second.submit} className="space-y-4">
+        {authSetup && (
+          <div className="space-y-2">
+            <p className="font-semibold">First time: set up your authenticator app</p>
+            <img src={authSetup.qrCode} alt="QR code for your authenticator app" className="mx-auto size-48 rounded-lg bg-white p-2" />
+            <p className="text-sm text-muted-foreground">
+              Can't scan? In the app choose "Enter a setup key" and type:{" "}
+              <span className="num break-all font-semibold text-foreground">{authSetup.secret}</span>
+            </p>
+          </div>
+        )}
         <p className="text-muted-foreground">{hint}</p>
         <Field id="off-code" label="6-digit code">
           <Input id="off-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} className="num text-center text-2xl tracking-[0.4em]" autoFocus required />
