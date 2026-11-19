@@ -1,416 +1,623 @@
-// MOCK IMPLEMENTATION. To be replaced with Supabase calls. Keep every function signature the same.
+// DEMO DATA. Used when the Supabase settings are missing (see src/data/api.ts and api.live.ts).
 //
-// Every screen gets and changes data ONLY through the functions in this file.
-// The mock keeps an in-memory store (reset on page reload) and a 400 ms fake delay.
-// Money is ALWAYS integer pesewas. Money rows are never edited or deleted: mistakes are
-// reversed (a negative row pointing at the original) or adjusted with a reason.
+// Every screen reads and changes data ONLY through the functions exported here.
+// The mock keeps its data in memory (mirrored to localStorage so a refresh keeps your test data)
+// and waits 400 ms on every call to behave like a network.
+// The real server must enforce the same permission rules that are checked below.
 
-import { calculateDues, duesStatus } from "@/lib/dues";
+import { calculateDues, buildSchedule, duesStatus, nextDueWeek } from "@/lib/dues";
+import { addDays, localToday, mondayOf } from "@/lib/dates";
 import { formatCedi } from "@/lib/money";
+import { isDemo } from "@/lib/env";
 import { normalizeMemberCode } from "@/lib/member-code";
-import { addDays, todayISO } from "@/lib/dates";
-import { createSeed, MOCK_HINTS, type MockStore } from "./mock/seed";
-import type {
-  Adjustment,
-  AdjustmentInput,
-  AuditEntry,
-  AuditFilters,
-  CashPosition,
-  Dashboard,
-  DuesRate,
-  DuesSummary,
-  Expense,
-  ExpenseInput,
-  Handover,
-  HandoverInput,
-  IncomeInput,
-  IncomeSource,
-  ISODate,
-  Member,
-  MemberCategory,
-  MemberFilters,
-  MemberRole,
-  MemberSemester,
-  MemberWithDues,
-  NewMemberInput,
-  OfficerPosition,
-  OfficerSignInResult,
-  OtherIncome,
-  Payment,
-  PreviewRole,
-  ReceiptView,
-  RecordPaymentInput,
-  Report,
-  Semester,
-  SemesterInput,
-  SemesterWeek,
-  TodaySummary,
-  UpdateMemberInput,
+import {
+  ApiError,
+  type Adjustment,
+  type AdjustmentInput,
+  type AdjustmentRow,
+  type AuditEntry,
+  type AuditFilters,
+  type CashHolder,
+  type CashPosition,
+  type Dashboard,
+  type DriveSummary,
+  type DuesStatus,
+  type Expense,
+  type ExpenseInput,
+  type ExpenseRow,
+  type Handover,
+  type HandoverInput,
+  type HandoverRow,
+  type IncomeInput,
+  type IncomeRow,
+  type IncomeSource,
+  type IsoDate,
+  type Member,
+  type MemberDetail,
+  type MemberFilters,
+  type MemberListItem,
+  type MemberUpdate,
+  type MyDues,
+  type NewMemberInput,
+  type OfficerChallenge,
+  type OtherIncome,
+  type Payment,
+  type PaymentRow,
+  type Position,
+  type RatesInput,
+  type RecordPaymentInput,
+  type Report,
+  type Role,
+  type Semester,
+  type SemesterDetail,
+  type SemesterInput,
+  type SemesterWeek,
+  type Session,
+  type SetupCodeResult,
+  type TodayReport,
 } from "./types";
+import { createSeed, SEED_VERSION, type MockDb } from "./mock/seed";
 
-/** This file is the test-data version. src/data/api.ts decides which version the app uses. */
-export const IS_MOCK = true;
+/* ------------------------------------------------------------------ */
+/* Mock plumbing                                                        */
+/* ------------------------------------------------------------------ */
 
-import { ApiError } from "./errors";
-export { ApiError };
-
-// ---------------------------------------------------------------------------
-// Mock plumbing
-// ---------------------------------------------------------------------------
-
-const store: MockStore = createSeed();
-const DELAY_MS = 400;
-const SESSION_KEY = "his-theatre-session";
+const STORAGE_KEY = "his-theatre.mock-db";
+const DELAY_MS = import.meta.env.MODE === "test" ? 0 : 400;
 const MAX_PIN_ATTEMPTS = 5;
 
-let pendingOfficerId: string | null = null;
+const hasStorage = typeof localStorage !== "undefined";
+let db: MockDb = loadDb();
 
-function delay<T>(value: T): Promise<T> {
-  return new Promise((resolve) => setTimeout(() => resolve(structuredClone(value)), DELAY_MS));
-}
-
-function readSession(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(SESSION_KEY);
-}
-function writeSession(memberId: string | null) {
-  if (typeof window === "undefined") return;
-  if (memberId) window.localStorage.setItem(SESSION_KEY, memberId);
-  else window.localStorage.removeItem(SESSION_KEY);
-}
-
-function me(): Member {
-  const id = readSession();
-  const member = id ? store.members.find((m) => m.id === id) : undefined;
-  if (!member || !member.isActive) throw new ApiError("Please sign in again.");
-  return member;
-}
-function requireAdmin(): Member {
-  const m = me();
-  if (m.role !== "admin" && m.role !== "super_admin") {
-    throw new ApiError("You don't have access to this.");
+function loadDb(): MockDb {
+  if (hasStorage) {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as MockDb;
+        if (parsed.version === SEED_VERSION) return parsed;
+      }
+    } catch {
+      // Corrupt or old data: start fresh.
+    }
   }
-  return m;
-}
-function requireSuperAdmin(): Member {
-  const m = me();
-  if (m.role !== "super_admin") throw new ApiError("Only the Director can do this.");
-  return m;
+  return createSeed(today());
 }
 
-function findMember(id: string): Member {
-  const m = store.members.find((x) => x.id === id);
-  if (!m) throw new ApiError("Member not found.");
-  return m;
-}
-function findSemester(id: string): Semester {
-  const s = store.semesters.find((x) => x.id === id);
-  if (!s) throw new ApiError("Semester not found.");
-  return s;
+function persist() {
+  if (hasStorage) localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
 }
 
-function uid(prefix: string) {
-  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+function delay() {
+  return new Promise<void>((resolve) => setTimeout(resolve, DELAY_MS));
 }
-function nextRef(prefix: string, existing: { ref?: string; receiptNo?: string }[]) {
-  const max = existing.reduce((acc, row) => {
-    const value = row.ref ?? row.receiptNo ?? "";
-    const num = Number(value.split("-")[1] ?? 0);
-    return Math.max(acc, num);
-  }, 0);
-  return `${prefix}-${String(max + 1).padStart(4, "0")}`;
+
+function clone<T>(value: T): T {
+  return structuredClone(value);
 }
-function now() {
+
+function today(): IsoDate {
+  return localToday();
+}
+
+function now(): string {
   return new Date().toISOString();
 }
 
-function audit(action: string, table: string, summary: string) {
-  const actor = me();
+function nextId(prefix: string) {
+  db.counters.id += 1;
+  return `${prefix}-${db.counters.id}`;
+}
+
+function ref(prefix: string, n: number) {
+  return `${prefix}-${String(n).padStart(4, "0")}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Access checks (the real server enforces these with security rules)   */
+/* ------------------------------------------------------------------ */
+
+function sessionMember(): Member | null {
+  const id = db.session.memberId;
+  return id ? (db.members.find((m) => m.id === id) ?? null) : null;
+}
+
+function requireMember(): Member {
+  const member = sessionMember();
+  if (!member) throw new ApiError("Please sign in again.", "unauthenticated");
+  return member;
+}
+
+function isAdmin(member: Member) {
+  return member.role === "admin" || member.role === "super_admin";
+}
+
+function requireAdmin(): Member {
+  const member = requireMember();
+  if (!isAdmin(member)) throw new ApiError("You don't have access to this page.", "forbidden");
+  return member;
+}
+
+function requireSuperAdmin(): Member {
+  const member = requireMember();
+  if (member.role !== "super_admin")
+    throw new ApiError("Only the Director can do this.", "forbidden");
+  return member;
+}
+
+function audit(actor: Member, action: string, table: string, summary: string) {
   const entry: AuditEntry = {
-    id: uid("aud"),
+    id: nextId("aud"),
     actorName: actor.fullName,
-    actorPosition: actor.position ?? (actor.role === "member" ? "Member" : "Admin"),
+    actorPosition: actor.position,
     action,
     table,
     summary,
     createdAt: now(),
   };
-  store.audit.unshift(entry);
+  db.audit.unshift(entry);
 }
 
-function assertAmount(amount: number) {
-  if (!Number.isInteger(amount) || amount <= 0) {
-    throw new ApiError("Enter an amount greater than zero.");
-  }
-}
-function assertReason(reason: string) {
-  if (!reason || reason.trim().length < 3) throw new ApiError("Please give a reason.");
+/* ------------------------------------------------------------------ */
+/* Lookups and derived rows                                             */
+/* ------------------------------------------------------------------ */
+
+function findMember(id: string): Member {
+  const member = db.members.find((m) => m.id === id);
+  if (!member) throw new ApiError("That member could not be found.", "not_found");
+  return member;
 }
 
-function rateFor(semesterId: string, category: MemberCategory) {
-  return store.rates.find((r) => r.semesterId === semesterId && r.category === category)?.weeklyAmount ?? 0;
+function memberName(id: string) {
+  return db.members.find((m) => m.id === id)?.fullName ?? "Unknown";
 }
 
-function summaryFor(memberId: string, semesterId: string, today = todayISO()): DuesSummary | null {
-  const ms = store.memberSemesters.find((x) => x.memberId === memberId && x.semesterId === semesterId);
-  if (!ms) return null;
-  const member = findMember(memberId);
-  return calculateDues(
-    ms,
-    store.weeks.filter((w) => w.semesterId === semesterId),
-    rateFor(semesterId, ms.category),
-    store.adjustments,
-    store.payments,
-    today,
-    member.leftOn,
-  );
+function normaliseCode(input: string): string {
+  return normalizeMemberCode(input);
 }
 
-function currentSemesterRow(): Semester {
-  const today = todayISO();
-  const open = store.semesters.filter((s) => !s.isClosed);
+function findSemester(id: string): Semester {
+  const semester = db.semesters.find((s) => s.id === id);
+  if (!semester) throw new ApiError("That semester could not be found.", "not_found");
+  return semester;
+}
+
+function currentSemesterRecord(): Semester | null {
+  const t = today();
+  const open = db.semesters
+    .filter((s) => !s.isClosed)
+    .sort((a, b) => a.startsOn.localeCompare(b.startsOn));
   return (
-    open.find((s) => s.startsOn <= today && today <= s.endsOn) ??
-    open.sort((a, b) => b.startsOn.localeCompare(a.startsOn))[0] ??
-    (store.semesters[0] as Semester)
+    open.find((s) => s.startsOn <= t && t <= s.endsOn) ??
+    open.find((s) => s.startsOn > t) ??
+    open.at(-1) ??
+    [...db.semesters].sort((a, b) => b.startsOn.localeCompare(a.startsOn))[0] ??
+    null
   );
 }
 
-function withDues(member: Member, semesterId: string): MemberWithDues {
-  const dues = summaryFor(member.id, semesterId);
-  return { ...member, dues, status: dues ? duesStatus(dues) : null };
+function weeksOf(semesterId: string): SemesterWeek[] {
+  return db.weeks.filter((w) => w.semesterId === semesterId).sort((a, b) => a.weekNo - b.weekNo);
 }
 
-// ---------------------------------------------------------------------------
-// Auth
-// ---------------------------------------------------------------------------
+function semesterDetail(semester: Semester): SemesterDetail {
+  const weeks = weeksOf(semester.id);
+  const t = today();
+  const current = weeks.find((w) => w.weekStart <= t && t < addDays(w.weekStart, 7));
+  return {
+    ...semester,
+    weeks,
+    rates: db.rates.filter((r) => r.semesterId === semester.id),
+    today: t,
+    currentWeekNo: current?.weekNo ?? null,
+  };
+}
 
-export async function signInMember(memberCode: string, pin: string): Promise<Member> {
-  const code = normalizeMemberCode(memberCode);
-  const member = store.members.find((m) => m.memberCode === code && m.isActive);
-  if (!member) {
-    await delay(null);
-    throw new ApiError("That member ID or PIN isn't right.");
-  }
-  if (!member.isActivated) {
-    await delay(null);
-    throw new ApiError("This account isn't set up yet. Use \"First time here\" with your setup code.");
-  }
-  if (member.isLocked) {
-    await delay(null);
-    throw new ApiError("This account is locked. Ask the Financial Secretary to unlock it.");
-  }
-  if (store.pins[member.id] !== pin) {
-    const tries = (store.failedAttempts[member.id] ?? 0) + 1;
-    store.failedAttempts[member.id] = tries;
-    if (tries >= MAX_PIN_ATTEMPTS) {
+function adjustmentRow(a: Adjustment): AdjustmentRow {
+  return { ...a, recordedByName: memberName(a.recordedBy) };
+}
+
+function paymentRow(p: Payment): PaymentRow {
+  const member = db.members.find((m) => m.id === p.memberId);
+  const voiding = db.payments.find((r) => r.reversesPaymentId === p.id);
+  const original = p.reversesPaymentId
+    ? db.payments.find((o) => o.id === p.reversesPaymentId)
+    : undefined;
+  return {
+    ...p,
+    memberName: member?.fullName ?? "Unknown",
+    memberCode: member?.memberCode ?? "",
+    recordedByName: memberName(p.recordedBy),
+    voidedBy: voiding?.receiptNo ?? null,
+    reversesReceiptNo: original?.receiptNo ?? null,
+  };
+}
+
+function expenseRow(e: Expense): ExpenseRow {
+  const voiding = db.expenses.find((r) => r.reversesId === e.id);
+  const original = e.reversesId ? db.expenses.find((o) => o.id === e.reversesId) : undefined;
+  return {
+    ...e,
+    recordedByName: memberName(e.recordedBy),
+    voidedBy: voiding?.ref ?? null,
+    reversesRef: original?.ref ?? null,
+  };
+}
+
+function incomeRow(i: OtherIncome): IncomeRow {
+  const voiding = db.income.find((r) => r.reversesId === i.id);
+  const original = i.reversesId ? db.income.find((o) => o.id === i.reversesId) : undefined;
+  return {
+    ...i,
+    recordedByName: memberName(i.recordedBy),
+    voidedBy: voiding?.ref ?? null,
+    reversesRef: original?.ref ?? null,
+  };
+}
+
+function handoverRow(h: Handover): HandoverRow {
+  return { ...h, fromName: memberName(h.fromMemberId), toName: memberName(h.toMemberId) };
+}
+
+const byNewest = <T extends { createdAt: string }>(a: T, b: T) =>
+  b.createdAt.localeCompare(a.createdAt);
+
+function duesFor(memberId: string, semesterId: string): MyDues | null {
+  const member = findMember(memberId);
+  const ms = db.memberSemesters.find((x) => x.memberId === memberId && x.semesterId === semesterId);
+  if (!ms) return null;
+  const rate = db.rates.find((r) => r.semesterId === semesterId && r.category === ms.category);
+  if (!rate) return null;
+  const weeks = weeksOf(semesterId);
+  const adjustments = db.adjustments.filter(
+    (a) => a.memberId === memberId && a.semesterId === semesterId,
+  );
+  const payments = db.payments.filter(
+    (p) => p.memberId === memberId && p.semesterId === semesterId,
+  );
+  const t = today();
+  const summary = calculateDues(ms, weeks, rate, adjustments, payments, t, member.leftOn);
+  const adjustmentTotal = adjustments.reduce((sum, a) => sum + a.amount, 0);
+  const schedule = buildSchedule(ms, weeks, summary, adjustmentTotal, t, member.leftOn);
+  return {
+    ...summary,
+    status: duesStatus(summary),
+    schedule,
+    adjustments: adjustments.map(adjustmentRow).sort(byNewest),
+    nextDue: nextDueWeek(schedule, t),
+  };
+}
+
+function listItem(member: Member, semesterId: string | null): MemberListItem {
+  const dues = semesterId ? duesFor(member.id, semesterId) : null;
+  if (!dues) return { member, dues: null, status: null };
+  const { status, schedule: _s, adjustments: _a, nextDue: _n, ...summary } = dues;
+  return { member, dues: summary, status };
+}
+
+function cashPosition(): CashPosition {
+  const officers = db.members.filter(
+    (m) =>
+      isAdmin(m) ||
+      db.payments.some((p) => p.recordedBy === m.id && p.method === "cash") ||
+      db.handovers.some((h) => h.toMemberId === m.id || h.fromMemberId === m.id),
+  );
+  const holders: CashHolder[] = officers.map((m) => {
+    const collected =
+      db.payments
+        .filter((p) => p.recordedBy === m.id && p.method === "cash")
+        .reduce((s, p) => s + p.amount, 0) +
+      db.income
+        .filter((i) => i.recordedBy === m.id && i.method === "cash")
+        .reduce((s, i) => s + i.amount, 0);
+    const received = db.handovers
+      .filter((h) => h.toMemberId === m.id && h.confirmedAt)
+      .reduce((s, h) => s + h.amount, 0);
+    const handedOver = db.handovers
+      .filter((h) => h.fromMemberId === m.id)
+      .reduce((s, h) => s + h.amount, 0);
+    const spent = db.expenses
+      .filter((e) => e.recordedBy === m.id)
+      .reduce((s, e) => s + e.amount, 0);
+    return {
+      memberId: m.id,
+      fullName: m.fullName,
+      position: m.position,
+      collected,
+      received,
+      handedOver,
+      spent,
+      holding: collected + received - handedOver - spent,
+    };
+  });
+  const duesIn = db.payments.reduce((s, p) => s + p.amount, 0);
+  const incomeIn = db.income.reduce((s, i) => s + i.amount, 0);
+  const totalOut = db.expenses.reduce((s, e) => s + e.amount, 0);
+  const cashIn = [...db.payments, ...db.income]
+    .filter((x) => x.method === "cash")
+    .reduce((s, x) => s + x.amount, 0);
+  const momoIn = [...db.payments, ...db.income]
+    .filter((x) => x.method === "momo")
+    .reduce((s, x) => s + x.amount, 0);
+  const pending = db.handovers.filter((h) => !h.confirmedAt);
+  return {
+    totalIn: duesIn + incomeIn,
+    totalOut,
+    balance: duesIn + incomeIn - totalOut,
+    cashIn,
+    momoIn,
+    inTransit: pending.reduce((s, h) => s + h.amount, 0),
+    holders: holders.sort((a, b) => b.holding - a.holding),
+    pendingHandovers: pending
+      .map(handoverRow)
+      .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)),
+    handovers: db.handovers
+      .map(handoverRow)
+      .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)),
+  };
+}
+
+function requireText(value: string | undefined, label: string, min = 3): string {
+  const text = (value ?? "").trim();
+  if (text.length < min) throw new ApiError(`${label} is required.`, "invalid");
+  return text;
+}
+
+function requirePositiveAmount(amount: number) {
+  if (!Number.isSafeInteger(amount) || amount <= 0)
+    throw new ApiError("Enter an amount greater than zero.", "invalid");
+}
+
+function requireOpenSemester(semesterId: string) {
+  const semester = findSemester(semesterId);
+  if (semester.isClosed)
+    throw new ApiError(
+      `${semester.name} is closed. Money can no longer be recorded against it.`,
+      "closed",
+    );
+  return semester;
+}
+
+function validatePin(pin: string) {
+  if (!/^\d{4}$/.test(pin)) throw new ApiError("Your PIN must be exactly 4 digits.", "invalid");
+}
+
+/* ------------------------------------------------------------------ */
+/* Auth                                                                 */
+/* ------------------------------------------------------------------ */
+
+export async function signInMember(memberCode: string, pin: string): Promise<Session> {
+  await delay();
+  const code = normaliseCode(memberCode);
+  const member = db.members.find((m) => m.memberCode === code);
+  if (!member)
+    throw new ApiError("We could not find that member ID. Check it and try again.", "not_found");
+  if (!member.isActive)
+    throw new ApiError(
+      "This membership is no longer active. Speak to the Financial Secretary.",
+      "inactive",
+    );
+  if (!member.isActivated)
+    throw new ApiError(
+      "This account has not been activated yet. Use your setup code to activate it first.",
+      "not_activated",
+    );
+  if (member.isLocked)
+    throw new ApiError(
+      "Your account is locked after too many wrong PINs. Ask the Financial Secretary to unlock it.",
+      "locked",
+    );
+  const cred = db.credentials[member.id];
+  if (cred.pin !== pin) {
+    cred.failedAttempts += 1;
+    const left = MAX_PIN_ATTEMPTS - cred.failedAttempts;
+    if (left <= 0) {
       member.isLocked = true;
-      await delay(null);
-      throw new ApiError("Too many wrong PINs. This account is now locked. Ask the Financial Secretary to unlock it.");
+      persist();
+      throw new ApiError(
+        "Too many wrong PINs. Your account is now locked. Ask the Financial Secretary to unlock it.",
+        "locked",
+      );
     }
-    await delay(null);
-    throw new ApiError(`That member ID or PIN isn't right. ${MAX_PIN_ATTEMPTS - tries} tries left.`);
+    persist();
+    throw new ApiError(
+      `That PIN is not right. ${left} ${left === 1 ? "try" : "tries"} left.`,
+      "wrong_pin",
+    );
   }
-  store.failedAttempts[member.id] = 0;
-  writeSession(member.id);
-  return delay(member);
+  cred.failedAttempts = 0;
+  db.session = { memberId: member.id, pendingOfficerId: null };
+  persist();
+  return clone({ member });
 }
 
-export async function activateMember(memberCode: string, setupCode: string, newPin: string): Promise<Member> {
-  const code = normalizeMemberCode(memberCode);
-  const member = store.members.find((m) => m.memberCode === code && m.isActive);
-  if (!member || store.setupCodes[member.id] !== setupCode.trim()) {
-    await delay(null);
-    throw new ApiError("That member ID or setup code isn't right.");
+export async function activateMember(
+  memberCode: string,
+  setupCode: string,
+  newPin: string,
+): Promise<Session> {
+  await delay();
+  const code = normaliseCode(memberCode);
+  const member = db.members.find((m) => m.memberCode === code);
+  const cred = member ? db.credentials[member.id] : undefined;
+  if (!member || !cred || !cred.setupCode || cred.setupCode !== setupCode.trim()) {
+    throw new ApiError(
+      "That member ID and setup code do not match. Ask the Financial Secretary for a new code.",
+      "invalid_code",
+    );
   }
-  if (!/^\d{4}$/.test(newPin)) {
-    await delay(null);
-    throw new ApiError("Your PIN must be 4 digits.");
+  if (cred.setupCodeExpiresAt && cred.setupCodeExpiresAt < now()) {
+    throw new ApiError(
+      "That setup code has expired. Ask the Financial Secretary for a new one.",
+      "expired",
+    );
   }
-  store.pins[member.id] = newPin;
-  delete store.setupCodes[member.id];
+  validatePin(newPin);
+  cred.pin = newPin;
+  cred.setupCode = null;
+  cred.setupCodeExpiresAt = null;
+  cred.failedAttempts = 0;
   member.isActivated = true;
   member.isLocked = false;
-  store.failedAttempts[member.id] = 0;
-  writeSession(member.id);
-  return delay(member);
+  db.session = { memberId: member.id, pendingOfficerId: null };
+  audit(member, "Activated account", "members", `${member.memberCode} set their PIN`);
+  persist();
+  return clone({ member });
 }
 
-export async function signInOfficer(email: string, password: string): Promise<OfficerSignInResult> {
-  const officer = store.officers.find(
-    (o) => o.email.toLowerCase() === email.trim().toLowerCase() && o.password === password,
+export async function signInOfficer(email: string, password: string): Promise<OfficerChallenge> {
+  await delay();
+  const login = db.officers.find((o) => o.email.toLowerCase() === email.trim().toLowerCase());
+  if (!login || login.password !== password)
+    throw new ApiError("That email and password do not match.", "invalid_credentials");
+  const member = findMember(login.memberId);
+  if (!isAdmin(member) || !member.isActive)
+    throw new ApiError("This officer account is no longer active.", "inactive");
+  db.session.pendingOfficerId = member.id;
+  persist();
+  // MOCK: officers already have an authenticator app set up; every code is 246810.
+  return {};
+}
+
+export async function verifyOfficerCode(code: string): Promise<Session> {
+  await delay();
+  const pendingId = db.session.pendingOfficerId;
+  if (!pendingId) throw new ApiError("Start again with your email and password.", "no_challenge");
+  // MOCK: every officer's verification code is 246810.
+  if (code.trim() !== "246810")
+    throw new ApiError("That code is not right. Check the message and try again.", "invalid_code");
+  const member = findMember(pendingId);
+  db.session = { memberId: member.id, pendingOfficerId: null };
+  audit(
+    member,
+    "Signed in",
+    "sessions",
+    `${member.position ?? "Officer"} signed in with email and code`,
   );
-  if (!officer) {
-    await delay(null);
-    throw new ApiError("That email or password isn't right.");
-  }
-  pendingOfficerId = officer.memberId;
-  return delay({ needsCode: true as const, hint: "Enter the 6-digit code we sent to your phone." });
-}
-
-export async function verifyOfficerCode(code: string): Promise<Member> {
-  if (!pendingOfficerId) {
-    await delay(null);
-    throw new ApiError("Start again with your email and password.");
-  }
-  if (code.trim() !== MOCK_HINTS.officerCode) {
-    await delay(null);
-    throw new ApiError("That code isn't right.");
-  }
-  const member = findMember(pendingOfficerId);
-  pendingOfficerId = null;
-  writeSession(member.id);
-  return delay(member);
+  persist();
+  return clone({ member });
 }
 
 export async function signOut(): Promise<void> {
-  writeSession(null);
-  pendingOfficerId = null;
-  return delay(undefined);
+  await delay();
+  db.session = { memberId: null, pendingOfficerId: null };
+  persist();
 }
 
 export async function getCurrentMember(): Promise<Member | null> {
-  const id = readSession();
-  const member = id ? store.members.find((m) => m.id === id && m.isActive) : undefined;
-  return delay(member ?? null);
+  await delay();
+  return clone(sessionMember());
 }
 
 export async function changePin(currentPin: string, newPin: string): Promise<void> {
-  const m = me();
-  if (store.pins[m.id] !== currentPin) {
-    await delay(null);
-    throw new ApiError("Your current PIN isn't right.");
-  }
-  if (!/^\d{4}$/.test(newPin)) {
-    await delay(null);
-    throw new ApiError("Your new PIN must be 4 digits.");
-  }
-  store.pins[m.id] = newPin;
-  return delay(undefined);
+  await delay();
+  const member = requireMember();
+  const cred = db.credentials[member.id];
+  if (cred.pin !== currentPin) throw new ApiError("Your current PIN is not right.", "wrong_pin");
+  validatePin(newPin);
+  if (newPin === currentPin)
+    throw new ApiError("Choose a PIN that is different from your current one.", "invalid");
+  cred.pin = newPin;
+  audit(member, "Changed PIN", "members", `${member.memberCode} changed their PIN`);
+  persist();
 }
 
-/** DEV ONLY: lets the developer preview the app as each role. Remove when the real backend lands. */
-export async function devPreviewAs(role: PreviewRole): Promise<Member> {
-  const map: Record<PreviewRole, string> = {
-    member: "m-010",
-    financial_secretary: "m-002",
-    treasurer: "m-003",
-    director: "m-001",
-  };
-  writeSession(map[role]);
-  return delay(findMember(map[role]));
+/* ------------------------------------------------------------------ */
+/* My dues                                                              */
+/* ------------------------------------------------------------------ */
+
+export async function getMyDues(semesterId: string): Promise<MyDues | null> {
+  await delay();
+  const member = requireMember();
+  return clone(duesFor(member.id, semesterId));
 }
 
-// ---------------------------------------------------------------------------
-// Member-facing dues
-// ---------------------------------------------------------------------------
-
-/** One receipt. Members can only open their own; officers can open any. */
-export async function getReceipt(paymentId: string): Promise<ReceiptView> {
-  const viewer = me();
-  const p = store.payments.find((x) => x.id === paymentId);
-  // Same message whether it doesn't exist or isn't theirs, so IDs can't be probed.
-  if (!p || (p.memberId !== viewer.id && viewer.role === "member")) throw new ApiError("Receipt not found.");
-  const member = findMember(p.memberId);
-  const recorder = store.members.find((m) => m.id === p.recordedBy);
-  return delay({
-    payment: p,
-    memberName: member.fullName,
-    memberCode: member.memberCode,
-    recordedByName: recorder?.fullName ?? "An officer",
-    recordedByPosition: recorder?.position ?? null,
-    reversed: store.payments.some((x) => x.reversesPaymentId === p.id),
-  });
-}
-
-export async function getMyDues(semesterId: string): Promise<DuesSummary | null> {
-  const m = me();
-  return delay(summaryFor(m.id, semesterId));
-}
-
-export async function getMyMembership(semesterId: string): Promise<MemberSemester | null> {
-  const m = me();
-  return delay(store.memberSemesters.find((x) => x.memberId === m.id && x.semesterId === semesterId) ?? null);
-}
-
-export async function getMyPayments(semesterId: string): Promise<Payment[]> {
-  const m = me();
-  return delay(
-    store.payments
-      .filter((p) => p.memberId === m.id && p.semesterId === semesterId)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+export async function getMyPayments(semesterId: string): Promise<PaymentRow[]> {
+  await delay();
+  const member = requireMember();
+  return clone(
+    db.payments
+      .filter((p) => p.memberId === member.id && p.semesterId === semesterId)
+      .sort(byNewest)
+      .map(paymentRow),
   );
 }
 
 export async function listSemesters(): Promise<Semester[]> {
-  me();
-  return delay([...store.semesters].sort((a, b) => b.startsOn.localeCompare(a.startsOn)));
+  await delay();
+  requireMember();
+  return clone([...db.semesters].sort((a, b) => b.startsOn.localeCompare(a.startsOn)));
 }
 
-export async function getCurrentSemester(): Promise<Semester> {
-  me();
-  return delay(currentSemesterRow());
+export async function getCurrentSemester(): Promise<SemesterDetail | null> {
+  await delay();
+  requireMember();
+  const semester = currentSemesterRecord();
+  return semester ? clone(semesterDetail(semester)) : null;
 }
 
-export async function getSemesterWeeks(semesterId: string): Promise<SemesterWeek[]> {
-  me();
-  return delay(store.weeks.filter((w) => w.semesterId === semesterId).sort((a, b) => a.weekNo - b.weekNo));
-}
+/* ------------------------------------------------------------------ */
+/* Members                                                              */
+/* ------------------------------------------------------------------ */
 
-export async function getRates(semesterId: string): Promise<DuesRate[]> {
-  me();
-  return delay(store.rates.filter((r) => r.semesterId === semesterId));
-}
-
-// ---------------------------------------------------------------------------
-// Members (admin)
-// ---------------------------------------------------------------------------
-
-export async function listMembers(filters: MemberFilters = {}): Promise<MemberWithDues[]> {
+export async function listMembers(filters: MemberFilters = {}): Promise<MemberListItem[]> {
+  await delay();
   requireAdmin();
-  const sem = currentSemesterRow();
-  const q = filters.search?.trim().toLowerCase();
-  const rows = store.members
-    .filter((m) => filters.includeInactive || m.isActive)
-    .filter((m) => !filters.drive || m.drive === filters.drive)
-    .filter((m) => !q || m.fullName.toLowerCase().includes(q) || m.memberCode.toLowerCase().includes(q) || m.phone.replace(/\s/g, "").includes(q.replace(/\s/g, "")))
-    .map((m) => withDues(m, sem.id))
-    .filter((m) => !filters.status || m.status === filters.status)
-    .sort((a, b) => a.memberCode.localeCompare(b.memberCode));
-  return delay(rows);
+  const semesterId = currentSemesterRecord()?.id ?? null;
+  const search = filters.search?.trim().toLowerCase() ?? "";
+  return clone(
+    db.members
+      .filter((m) => filters.includeInactive || m.isActive)
+      .filter((m) => !filters.drive || m.drive === filters.drive)
+      .filter(
+        (m) =>
+          !search ||
+          m.fullName.toLowerCase().includes(search) ||
+          m.memberCode.toLowerCase().includes(search) ||
+          m.phone.replace(/\s/g, "").includes(search.replace(/\s/g, "")),
+      )
+      .map((m) => listItem(m, semesterId))
+      .filter((item) => !filters.status || item.status === filters.status)
+      .sort((a, b) => a.member.fullName.localeCompare(b.member.fullName)),
+  );
 }
 
-export async function listDrives(): Promise<string[]> {
-  requireAdmin();
-  return delay([...new Set(store.members.map((m) => m.drive))].sort());
-}
-
-export async function getMember(
-  id: string,
-): Promise<MemberWithDues & { payments: Payment[]; adjustments: Adjustment[]; membership: MemberSemester | null }> {
-  requireAdmin();
-  const sem = currentSemesterRow();
+export async function getMember(id: string): Promise<MemberDetail> {
+  await delay();
+  const me = requireMember();
+  if (me.id !== id && !isAdmin(me))
+    throw new ApiError("You don't have access to this page.", "forbidden");
   const member = findMember(id);
-  return delay({
-    ...withDues(member, sem.id),
-    membership: store.memberSemesters.find((x) => x.memberId === id && x.semesterId === sem.id) ?? null,
-    payments: store.payments
-      .filter((p) => p.memberId === id && p.semesterId === sem.id)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    adjustments: store.adjustments.filter((a) => a.memberId === id && a.semesterId === sem.id),
+  const semesterId = currentSemesterRecord()?.id ?? null;
+  return clone({
+    member,
+    semesterId,
+    memberSemester:
+      db.memberSemesters.find((x) => x.memberId === id && x.semesterId === semesterId) ?? null,
+    dues: semesterId ? duesFor(id, semesterId) : null,
+    payments: db.payments
+      .filter((p) => p.memberId === id && (!semesterId || p.semesterId === semesterId))
+      .sort(byNewest)
+      .map(paymentRow),
+    adjustments: db.adjustments
+      .filter((a) => a.memberId === id && (!semesterId || a.semesterId === semesterId))
+      .sort(byNewest)
+      .map(adjustmentRow),
   });
 }
 
 export async function addMember(input: NewMemberInput): Promise<Member> {
-  requireAdmin();
-  if (!input.fullName.trim()) throw new ApiError("Enter the member's full name.");
-  const n = store.members.length + 1;
+  await delay();
+  const actor = requireAdmin();
+  const fullName = requireText(input.fullName, "Full name");
+  const drive = requireText(input.drive, "Drive", 1);
+  db.counters.member += 1;
   const member: Member = {
-    id: `m-${String(n).padStart(3, "0")}`,
-    memberCode: `HIS-${String(n).padStart(3, "0")}`,
-    fullName: input.fullName.trim(),
+    id: nextId("mem"),
+    memberCode: `HIS-${String(db.counters.member).padStart(3, "0")}`,
+    fullName,
     phone: input.phone.trim(),
-    drive: input.drive,
+    drive,
     category: input.category,
     role: "member",
     position: null,
@@ -419,535 +626,787 @@ export async function addMember(input: NewMemberInput): Promise<Member> {
     isActivated: false,
     isLocked: false,
   };
-  store.members.push(member);
-  // Join the current semester from this week.
-  const sem = currentSemesterRow();
-  const today = todayISO();
-  const weeks = store.weeks.filter((w) => w.semesterId === sem.id);
-  const startWeek = [...weeks].reverse().find((w) => w.weekStart <= today)?.weekNo ?? 1;
-  store.memberSemesters.push({ memberId: member.id, semesterId: sem.id, category: member.category, startWeekNo: startWeek });
-  audit("create", "members", `Added ${member.fullName} (${member.memberCode})`);
-  return delay(member);
-}
-
-export async function updateMember(id: string, input: UpdateMemberInput): Promise<Member> {
-  requireAdmin();
-  const member = findMember(id);
-  Object.assign(member, Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)));
-  if (input.category) {
-    const sem = currentSemesterRow();
-    const ms = store.memberSemesters.find((x) => x.memberId === id && x.semesterId === sem.id);
-    if (ms) ms.category = input.category;
+  db.members.push(member);
+  db.credentials[member.id] = {
+    pin: null,
+    failedAttempts: 0,
+    setupCode: null,
+    setupCodeExpiresAt: null,
+  };
+  const semester = currentSemesterRecord();
+  if (semester) {
+    const maxWeek = weeksOf(semester.id).length || 1;
+    db.memberSemesters.push({
+      memberId: member.id,
+      semesterId: semester.id,
+      category: input.category,
+      startWeekNo: Math.min(Math.max(1, Math.round(input.startWeekNo)), maxWeek),
+    });
   }
-  audit("update", "members", `Updated details for ${member.fullName}`);
-  return delay(member);
+  audit(
+    actor,
+    "Added member",
+    "members",
+    `${member.memberCode} · ${member.fullName} (${member.drive})`,
+  );
+  persist();
+  return clone(member);
 }
 
-export async function deactivateMember(id: string, leftOn: ISODate): Promise<Member> {
-  requireAdmin();
+export async function updateMember(id: string, patch: MemberUpdate): Promise<Member> {
+  await delay();
+  const actor = requireAdmin();
   const member = findMember(id);
+  const changes: string[] = [];
+  if (patch.fullName !== undefined && patch.fullName.trim() !== member.fullName) {
+    member.fullName = requireText(patch.fullName, "Full name");
+    changes.push("name");
+  }
+  if (patch.phone !== undefined && patch.phone.trim() !== member.phone) {
+    member.phone = patch.phone.trim();
+    changes.push("phone");
+  }
+  if (patch.drive !== undefined && patch.drive !== member.drive) {
+    member.drive = requireText(patch.drive, "Drive", 1);
+    changes.push("drive");
+  }
+  if (patch.category !== undefined && patch.category !== member.category) {
+    member.category = patch.category;
+    // The category for the current semester follows, so the right weekly rate applies.
+    const semester = currentSemesterRecord();
+    const ms =
+      semester && db.memberSemesters.find((x) => x.memberId === id && x.semesterId === semester.id);
+    if (ms && semester && !semester.isClosed) ms.category = patch.category;
+    changes.push("category");
+  }
+  if (changes.length)
+    audit(
+      actor,
+      "Updated member",
+      "members",
+      `${member.memberCode}: changed ${changes.join(", ")}`,
+    );
+  persist();
+  return clone(member);
+}
+
+export async function deactivateMember(id: string, leftOn: IsoDate): Promise<Member> {
+  await delay();
+  const actor = requireAdmin();
+  const member = findMember(id);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(leftOn))
+    throw new ApiError("Choose the date they left.", "invalid");
+  if (member.id === actor.id)
+    throw new ApiError("You cannot deactivate your own account.", "invalid");
   member.isActive = false;
   member.leftOn = leftOn;
-  audit("deactivate", "members", `Marked ${member.fullName} as left on ${leftOn}`);
-  return delay(member);
+  audit(
+    actor,
+    "Deactivated member",
+    "members",
+    `${member.memberCode} · ${member.fullName} left on ${leftOn}`,
+  );
+  persist();
+  return clone(member);
 }
 
-export async function issueSetupCode(memberId: string): Promise<string> {
-  requireAdmin();
-  const member = findMember(memberId);
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  store.setupCodes[memberId] = code;
-  member.isActivated = false;
-  audit("issue_setup_code", "members", `Issued a setup code to ${member.fullName}`);
-  return delay(code);
-}
+/* ------------------------------------------------------------------ */
+/* Money: dues payments and adjustments                                 */
+/* ------------------------------------------------------------------ */
 
-export async function unlockMember(memberId: string): Promise<Member> {
-  requireAdmin();
-  const member = findMember(memberId);
-  member.isLocked = false;
-  store.failedAttempts[memberId] = 0;
-  audit("unlock", "members", `Unlocked ${member.fullName}`);
-  return delay(member);
-}
+export async function recordPayment(input: RecordPaymentInput): Promise<PaymentRow> {
+  await delay();
+  const actor = requireAdmin();
+  // Idempotency: a retried submission returns the payment that was already recorded.
+  const existing = db.payments.find((p) => p.idempotencyKey === input.idempotencyKey);
+  if (existing) return clone(paymentRow(existing));
 
-export async function setRole(memberId: string, role: MemberRole, position: OfficerPosition | null): Promise<Member> {
-  const director = requireSuperAdmin();
-  const member = findMember(memberId);
-  if (member.id === director.id && role !== "super_admin") {
-    throw new ApiError("You can't remove your own Director role.");
-  }
-  if (role !== "member" && !position) throw new ApiError("Choose their position.");
-  member.role = role;
-  member.position = position;
-  audit("set_role", "members", `Set ${member.fullName} to ${position ?? role}`);
-  return delay(member);
-}
-
-// ---------------------------------------------------------------------------
-// Payments & adjustments
-// ---------------------------------------------------------------------------
-
-export async function recordPayment(input: RecordPaymentInput): Promise<Payment> {
-  const officer = requireAdmin();
-  const existing = store.payments.find((p) => p.idempotencyKey === input.idempotencyKey);
-  if (existing) return delay(existing); // same tap twice = one payment
-  assertAmount(input.amount);
+  requirePositiveAmount(input.amount);
+  requireOpenSemester(input.semesterId);
   const member = findMember(input.memberId);
-  const sem = findSemester(input.semesterId);
-  if (sem.isClosed) throw new ApiError("This semester is closed.");
-  if (input.method === "momo" && !input.momoReference?.trim()) {
-    throw new ApiError("Enter the MoMo transaction ID.");
+  if (
+    !db.memberSemesters.some((x) => x.memberId === member.id && x.semesterId === input.semesterId)
+  ) {
+    throw new ApiError(`${member.fullName} is not on the roll for this semester.`, "invalid");
   }
+  const momoReference = input.momoReference?.trim();
+  if (input.method === "momo" && !momoReference)
+    throw new ApiError("Enter the MoMo transaction ID.", "invalid");
+  if (input.paidOn > today())
+    throw new ApiError("The payment date cannot be in the future.", "invalid");
+
+  db.counters.receipt += 1;
   const payment: Payment = {
-    id: uid("pay"),
-    receiptNo: nextRef("R", store.payments),
+    id: nextId("pay"),
+    receiptNo: ref("R", db.counters.receipt),
     memberId: member.id,
-    semesterId: sem.id,
+    semesterId: input.semesterId,
     amount: input.amount,
     method: input.method,
-    ...(input.method === "momo" && input.momoReference ? { momoReference: input.momoReference.trim() } : {}),
+    ...(input.method === "momo" ? { momoReference } : {}),
     paidOn: input.paidOn,
     ...(input.note?.trim() ? { note: input.note.trim() } : {}),
     idempotencyKey: input.idempotencyKey,
-    recordedBy: officer.id,
+    recordedBy: actor.id,
     createdAt: now(),
   };
-  store.payments.push(payment);
-  audit("create", "payments", `${payment.receiptNo}: ${formatCedi(payment.amount)} ${payment.method === "momo" ? "MoMo" : "cash"} from ${member.fullName}`);
-  return delay(payment);
+  db.payments.push(payment);
+  audit(
+    actor,
+    "Recorded payment",
+    "payments",
+    `${payment.receiptNo} · ${member.fullName} · ${formatCedi(payment.amount)} ${payment.method === "momo" ? "MoMo" : "cash"}`,
+  );
+  persist();
+  return clone(paymentRow(payment));
 }
 
-export async function reversePayment(id: string, reason: string): Promise<Payment> {
-  const officer = requireAdmin();
-  assertReason(reason);
-  const original = store.payments.find((p) => p.id === id);
-  if (!original) throw new ApiError("Payment not found.");
-  if (original.reversesPaymentId) throw new ApiError("A reversal can't be reversed.");
-  if (store.payments.some((p) => p.reversesPaymentId === id)) throw new ApiError("This payment has already been reversed.");
+export async function reversePayment(id: string, reason: string): Promise<PaymentRow> {
+  await delay();
+  const actor = requireAdmin();
+  const original = db.payments.find((p) => p.id === id);
+  if (!original) throw new ApiError("That payment could not be found.", "not_found");
+  if (original.reversesPaymentId)
+    throw new ApiError(
+      "A reversal cannot itself be voided. Record a new payment instead.",
+      "invalid",
+    );
+  if (db.payments.some((p) => p.reversesPaymentId === id))
+    throw new ApiError(`${original.receiptNo} has already been voided.`, "invalid");
+  const why = requireText(reason, "A reason");
+  requireOpenSemester(original.semesterId);
+
+  db.counters.receipt += 1;
   const reversal: Payment = {
-    ...original,
-    id: uid("pay"),
-    receiptNo: nextRef("R", store.payments),
+    id: nextId("pay"),
+    receiptNo: ref("R", db.counters.receipt),
+    memberId: original.memberId,
+    semesterId: original.semesterId,
     amount: -original.amount,
-    paidOn: todayISO(),
-    note: `Reversal of ${original.receiptNo}: ${reason.trim()}`,
+    method: original.method,
+    ...(original.momoReference ? { momoReference: original.momoReference } : {}),
+    paidOn: today(),
+    note: why,
     reversesPaymentId: original.id,
-    idempotencyKey: uid("rev"),
-    recordedBy: officer.id,
+    idempotencyKey: `reverse:${original.id}`,
+    recordedBy: actor.id,
     createdAt: now(),
   };
-  store.payments.push(reversal);
-  audit("reverse", "payments", `Reversed ${original.receiptNo} for ${findMember(original.memberId).fullName}: ${reason.trim()}`);
-  return delay(reversal);
+  db.payments.push(reversal);
+  audit(
+    actor,
+    "Voided payment",
+    "payments",
+    `${reversal.receiptNo} reverses ${original.receiptNo} for ${memberName(original.memberId)}. Reason: ${why}`,
+  );
+  persist();
+  return clone(paymentRow(reversal));
 }
 
-export async function addAdjustment(input: AdjustmentInput): Promise<Adjustment> {
-  const officer = requireAdmin();
-  assertReason(input.reason);
-  if (!Number.isInteger(input.amount) || input.amount === 0) throw new ApiError("Enter an amount.");
-  const adj: Adjustment = {
-    id: uid("adj"),
-    memberId: input.memberId,
+export async function addAdjustment(input: AdjustmentInput): Promise<AdjustmentRow> {
+  await delay();
+  const actor = requireAdmin();
+  if (!Number.isSafeInteger(input.amount) || input.amount === 0)
+    throw new ApiError("Enter an amount greater than zero.", "invalid");
+  const why = requireText(input.reason, "A reason");
+  requireOpenSemester(input.semesterId);
+  const member = findMember(input.memberId);
+  const adjustment: Adjustment = {
+    id: nextId("adj"),
+    memberId: member.id,
     semesterId: input.semesterId,
     amount: input.amount,
-    reason: input.reason.trim(),
-    recordedBy: officer.id,
+    reason: why,
+    recordedBy: actor.id,
     createdAt: now(),
   };
-  store.adjustments.push(adj);
-  audit("create", "adjustments", `${input.amount < 0 ? "Waived" : "Added"} ${formatCedi(Math.abs(input.amount))} for ${findMember(input.memberId).fullName}: ${adj.reason}`);
-  return delay(adj);
+  db.adjustments.push(adjustment);
+  const kind =
+    input.amount < 0
+      ? `waiver of ${formatCedi(-input.amount)}`
+      : `extra charge of ${formatCedi(input.amount)}`;
+  audit(actor, "Added adjustment", "adjustments", `${member.fullName}: ${kind}. ${why}`);
+  persist();
+  return clone(adjustmentRow(adjustment));
 }
 
-// ---------------------------------------------------------------------------
-// Expenses, other income, handovers
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/* Money: expenses, other income, handovers                             */
+/* ------------------------------------------------------------------ */
 
-export async function listExpenses(): Promise<Expense[]> {
-  requireAdmin();
-  return delay([...store.expenses].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-}
-
-export async function recordExpense(input: ExpenseInput): Promise<Expense> {
-  const officer = requireAdmin();
-  assertAmount(input.amount);
-  if (!input.description.trim()) throw new ApiError("Describe what the money was spent on.");
+export async function recordExpense(input: ExpenseInput): Promise<ExpenseRow> {
+  await delay();
+  const actor = requireAdmin();
+  requirePositiveAmount(input.amount);
+  if (input.date > today())
+    throw new ApiError("The expense date cannot be in the future.", "invalid");
+  db.counters.expense += 1;
   const expense: Expense = {
-    id: uid("exp"),
-    ref: nextRef("E", store.expenses),
-    ...input,
-    description: input.description.trim(),
-    recordedBy: officer.id,
+    id: nextId("exp"),
+    ref: ref("E", db.counters.expense),
+    description: requireText(input.description, "A description"),
+    category: requireText(input.category, "A category", 1),
+    amount: input.amount,
+    paidBy: requireText(input.paidBy, "Who paid", 2),
+    approvedBy: requireText(input.approvedBy, "Who approved it", 2),
+    ...(input.receiptRef?.trim() ? { receiptRef: input.receiptRef.trim() } : {}),
+    date: input.date,
+    recordedBy: actor.id,
     createdAt: now(),
   };
-  store.expenses.push(expense);
-  audit("create", "expenses", `${expense.ref}: ${formatCedi(expense.amount)} — ${expense.description}`);
-  return delay(expense);
+  db.expenses.push(expense);
+  audit(
+    actor,
+    "Recorded expense",
+    "expenses",
+    `${expense.ref} · ${expense.description} · ${formatCedi(expense.amount)}`,
+  );
+  persist();
+  return clone(expenseRow(expense));
 }
 
-export async function reverseExpense(id: string, reason: string): Promise<Expense> {
-  const officer = requireAdmin();
-  assertReason(reason);
-  const original = store.expenses.find((e) => e.id === id);
-  if (!original) throw new ApiError("Expense not found.");
-  if (original.reversesId || store.expenses.some((e) => e.reversesId === id)) {
-    throw new ApiError("This expense can't be reversed again.");
-  }
+export async function reverseExpense(id: string, reason: string): Promise<ExpenseRow> {
+  await delay();
+  const actor = requireAdmin();
+  const original = db.expenses.find((e) => e.id === id);
+  if (!original) throw new ApiError("That expense could not be found.", "not_found");
+  if (original.reversesId) throw new ApiError("A reversal cannot itself be voided.", "invalid");
+  if (db.expenses.some((e) => e.reversesId === id))
+    throw new ApiError(`${original.ref} has already been voided.`, "invalid");
+  const why = requireText(reason, "A reason");
+  db.counters.expense += 1;
   const reversal: Expense = {
     ...original,
-    id: uid("exp"),
-    ref: nextRef("E", store.expenses),
+    id: nextId("exp"),
+    ref: ref("E", db.counters.expense),
+    description: why,
     amount: -original.amount,
-    description: `Reversal of ${original.ref}: ${reason.trim()}`,
-    date: todayISO(),
+    date: today(),
     reversesId: original.id,
-    recordedBy: officer.id,
+    recordedBy: actor.id,
     createdAt: now(),
   };
-  store.expenses.push(reversal);
-  audit("reverse", "expenses", `Reversed ${original.ref}: ${reason.trim()}`);
-  return delay(reversal);
+  db.expenses.push(reversal);
+  audit(
+    actor,
+    "Voided expense",
+    "expenses",
+    `${reversal.ref} reverses ${original.ref}. Reason: ${why}`,
+  );
+  persist();
+  return clone(expenseRow(reversal));
 }
 
-export async function listIncome(): Promise<OtherIncome[]> {
-  requireAdmin();
-  return delay([...store.income].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-}
-
-export async function recordIncome(input: IncomeInput): Promise<OtherIncome> {
-  const officer = requireAdmin();
-  assertAmount(input.amount);
-  const row: OtherIncome = {
-    id: uid("inc"),
-    ref: nextRef("I", store.income),
-    ...input,
-    description: input.description.trim(),
-    recordedBy: officer.id,
+export async function recordIncome(input: IncomeInput): Promise<IncomeRow> {
+  await delay();
+  const actor = requireAdmin();
+  requirePositiveAmount(input.amount);
+  if (input.date > today()) throw new ApiError("The date cannot be in the future.", "invalid");
+  db.counters.income += 1;
+  const income: OtherIncome = {
+    id: nextId("inc"),
+    ref: ref("I", db.counters.income),
+    source: input.source,
+    description: requireText(input.description, "A description"),
+    amount: input.amount,
+    method: input.method,
+    date: input.date,
+    recordedBy: actor.id,
     createdAt: now(),
   };
-  store.income.push(row);
-  audit("create", "other_income", `${row.ref}: ${formatCedi(row.amount)} ${row.source.replace("_", " ")}`);
-  return delay(row);
+  db.income.push(income);
+  audit(
+    actor,
+    "Recorded income",
+    "other_income",
+    `${income.ref} · ${income.description} · ${formatCedi(income.amount)}`,
+  );
+  persist();
+  return clone(incomeRow(income));
 }
 
-export async function reverseIncome(id: string, reason: string): Promise<OtherIncome> {
-  const officer = requireAdmin();
-  assertReason(reason);
-  const original = store.income.find((i) => i.id === id);
-  if (!original) throw new ApiError("Income not found.");
-  if (original.reversesId || store.income.some((i) => i.reversesId === id)) {
-    throw new ApiError("This entry can't be reversed again.");
-  }
+export async function reverseIncome(id: string, reason: string): Promise<IncomeRow> {
+  await delay();
+  const actor = requireAdmin();
+  const original = db.income.find((i) => i.id === id);
+  if (!original) throw new ApiError("That income could not be found.", "not_found");
+  if (original.reversesId) throw new ApiError("A reversal cannot itself be voided.", "invalid");
+  if (db.income.some((i) => i.reversesId === id))
+    throw new ApiError(`${original.ref} has already been voided.`, "invalid");
+  const why = requireText(reason, "A reason");
+  db.counters.income += 1;
   const reversal: OtherIncome = {
     ...original,
-    id: uid("inc"),
-    ref: nextRef("I", store.income),
+    id: nextId("inc"),
+    ref: ref("I", db.counters.income),
+    description: why,
     amount: -original.amount,
-    description: `Reversal of ${original.ref}: ${reason.trim()}`,
-    date: todayISO(),
+    date: today(),
     reversesId: original.id,
-    recordedBy: officer.id,
+    recordedBy: actor.id,
     createdAt: now(),
   };
-  store.income.push(reversal);
-  audit("reverse", "other_income", `Reversed ${original.ref}: ${reason.trim()}`);
-  return delay(reversal);
+  db.income.push(reversal);
+  audit(
+    actor,
+    "Voided income",
+    "other_income",
+    `${reversal.ref} reverses ${original.ref}. Reason: ${why}`,
+  );
+  persist();
+  return clone(incomeRow(reversal));
 }
 
-export async function listHandovers(): Promise<Handover[]> {
-  requireAdmin();
-  return delay([...store.handovers].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)));
-}
-
-export async function recordHandover(input: HandoverInput): Promise<Handover> {
-  const officer = requireAdmin();
-  assertAmount(input.amount);
-  if (officer.position !== "Financial Secretary") throw new ApiError("Only the Financial Secretary records handovers.");
-  if (input.toMemberId === officer.id) throw new ApiError("You can't hand cash to yourself.");
+export async function recordHandover(input: HandoverInput): Promise<HandoverRow> {
+  await delay();
+  const actor = requireAdmin();
+  requirePositiveAmount(input.amount);
   const to = findMember(input.toMemberId);
-  if (to.position !== "Treasurer") throw new ApiError("Cash is handed over to the Treasurer.");
-  const row: Handover = {
-    id: uid("ho"),
-    ref: nextRef("H", store.handovers),
-    fromMemberId: officer.id,
+  if (to.id === actor.id) throw new ApiError("Choose someone other than yourself.", "invalid");
+  if (!isAdmin(to)) throw new ApiError("Cash can only be handed to an officer.", "invalid");
+  const holding = cashPosition().holders.find((h) => h.memberId === actor.id)?.holding ?? 0;
+  if (input.amount > holding)
+    throw new ApiError(
+      `You are only holding ${formatCedi(Math.max(0, holding))} in cash.`,
+      "invalid",
+    );
+  db.counters.handover += 1;
+  const handover: Handover = {
+    id: nextId("ho"),
+    ref: ref("H", db.counters.handover),
+    fromMemberId: actor.id,
     toMemberId: to.id,
     amount: input.amount,
     recordedAt: now(),
     confirmedAt: null,
   };
-  store.handovers.push(row);
-  audit("create", "handovers", `Handed over ${formatCedi(row.amount)} to ${to.fullName} (${row.ref})`);
-  return delay(row);
+  db.handovers.push(handover);
+  audit(
+    actor,
+    "Recorded handover",
+    "handovers",
+    `${handover.ref} · ${formatCedi(handover.amount)} to ${to.fullName}`,
+  );
+  persist();
+  return clone(handoverRow(handover));
 }
 
-export async function confirmHandover(id: string): Promise<Handover> {
-  const officer = requireAdmin();
-  const row = store.handovers.find((h) => h.id === id);
-  if (!row) throw new ApiError("Handover not found.");
-  if (row.toMemberId !== officer.id) throw new ApiError("Only the person receiving the cash can confirm it.");
-  if (row.confirmedAt) throw new ApiError("Already confirmed.");
-  row.confirmedAt = now();
-  audit("confirm", "handovers", `Confirmed receiving ${formatCedi(row.amount)} (${row.ref})`);
-  return delay(row);
-}
-
-// ---------------------------------------------------------------------------
-// Overviews
-// ---------------------------------------------------------------------------
-
-/**
- * Mock model of who holds the cash: cash recorded by an officer stays with them until
- * handed over; confirmed handovers move it; cash expenses come out of the Treasurer's cash.
- */
-function cashPosition(): CashPosition {
-  const cashIn = (memberId: string) =>
-    store.payments.filter((p) => p.method === "cash" && p.recordedBy === memberId).reduce((s, p) => s + p.amount, 0) +
-    store.income.filter((i) => i.method === "cash" && i.recordedBy === memberId).reduce((s, i) => s + i.amount, 0);
-  const spent = (memberId: string) =>
-    store.expenses.filter((e) => e.recordedBy === memberId).reduce((s, e) => s + e.amount, 0);
-
-  const officers = store.members.filter((m) => m.role !== "member" && m.isActive);
-  const holders = officers.map((o) => {
-    const handedOut = store.handovers.filter((h) => h.fromMemberId === o.id).reduce((s, h) => s + h.amount, 0);
-    const received = store.handovers.filter((h) => h.toMemberId === o.id && h.confirmedAt).reduce((s, h) => s + h.amount, 0);
-    return { memberId: o.id, fullName: o.fullName, position: o.position, cash: cashIn(o.id) - spent(o.id) - handedOut + received };
-  });
-
-  const duesCash = store.payments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
-  const duesMomo = store.payments.filter((p) => p.method === "momo").reduce((s, p) => s + p.amount, 0);
-  const incCash = store.income.filter((i) => i.method === "cash").reduce((s, i) => s + i.amount, 0);
-  const incMomo = store.income.filter((i) => i.method === "momo").reduce((s, i) => s + i.amount, 0);
-  const expenses = store.expenses.reduce((s, e) => s + e.amount, 0);
-  const pending = store.handovers.filter((h) => !h.confirmedAt);
-
-  return {
-    balance: duesCash + duesMomo + incCash + incMomo - expenses,
-    cash: duesCash + incCash - expenses,
-    momo: duesMomo + incMomo,
-    holders,
-    inTransit: pending.reduce((s, h) => s + h.amount, 0),
-    pendingHandovers: pending,
-  };
+export async function confirmHandover(id: string): Promise<HandoverRow> {
+  await delay();
+  const actor = requireAdmin();
+  const handover = db.handovers.find((h) => h.id === id);
+  if (!handover) throw new ApiError("That handover could not be found.", "not_found");
+  if (handover.toMemberId !== actor.id)
+    throw new ApiError(
+      `Only ${memberName(handover.toMemberId)} can confirm receiving this cash.`,
+      "forbidden",
+    );
+  if (handover.confirmedAt) throw new ApiError(`${handover.ref} was already confirmed.`, "invalid");
+  handover.confirmedAt = now();
+  audit(
+    actor,
+    "Confirmed handover",
+    "handovers",
+    `${handover.ref} · received ${formatCedi(handover.amount)} from ${memberName(handover.fromMemberId)}`,
+  );
+  persist();
+  return clone(handoverRow(handover));
 }
 
 export async function getCashPosition(): Promise<CashPosition> {
+  await delay();
   requireAdmin();
-  return delay(cashPosition());
+  return clone(cashPosition());
 }
 
-export async function getToday(): Promise<TodaySummary> {
-  requireAdmin();
-  const date = todayISO();
-  const payments = store.payments.filter((p) => p.paidOn === date).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const income = store.income.filter((i) => i.date === date);
-  const expenses = store.expenses.filter((e) => e.date === date);
-  const handovers = store.handovers.filter((h) => todayISO(new Date(h.recordedAt)) === date || !h.confirmedAt);
-  const cash = payments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0) + income.filter((i) => i.method === "cash").reduce((s, i) => s + i.amount, 0);
-  const momo = payments.filter((p) => p.method === "momo").reduce((s, p) => s + p.amount, 0) + income.filter((i) => i.method === "momo").reduce((s, i) => s + i.amount, 0);
-  return delay({
-    date,
-    collected: cash + momo,
-    collectedCash: cash,
-    collectedMomo: momo,
-    spent: expenses.reduce((s, e) => s + e.amount, 0),
-    payments,
-    income,
-    expenses,
-    handovers,
+/* ------------------------------------------------------------------ */
+/* Today, dashboard and reports                                         */
+/* ------------------------------------------------------------------ */
+
+export async function getToday(): Promise<TodayReport> {
+  await delay();
+  const actor = requireAdmin();
+  const t = today();
+  const payments = db.payments.filter((p) => p.paidOn === t).sort(byNewest);
+  const income = db.income.filter((i) => i.date === t).sort(byNewest);
+  const expenses = db.expenses.filter((e) => e.date === t).sort(byNewest);
+  const sum = (xs: { amount: number }[]) => xs.reduce((s, x) => s + x.amount, 0);
+  const duesCash = sum(payments.filter((p) => p.method === "cash"));
+  const duesMomo = sum(payments.filter((p) => p.method === "momo"));
+  const incomeTotal = sum(income);
+  const expensesTotal = sum(expenses);
+  const position = cashPosition();
+  return clone({
+    date: t,
+    net: duesCash + duesMomo + incomeTotal - expensesTotal,
+    duesTotal: duesCash + duesMomo,
+    duesCash,
+    duesMomo,
+    incomeTotal,
+    expensesTotal,
+    payments: payments.map(paymentRow),
+    income: income.map(incomeRow),
+    expenses: expenses.map(expenseRow),
+    handovers: db.handovers.filter((h) => h.recordedAt.slice(0, 10) === t).map(handoverRow),
+    pendingHandovers: position.pendingHandovers,
+    myCashHolding: position.holders.find((h) => h.memberId === actor.id)?.holding ?? 0,
   });
 }
 
 export async function getDashboard(semesterId: string): Promise<Dashboard> {
+  await delay();
   requireAdmin();
   const semester = findSemester(semesterId);
-  const rows = store.members.filter((m) => m.isActive).map((m) => withDues(m, semesterId)).filter((m) => m.dues);
-  return delay({
-    semester,
-    memberCount: rows.length,
-    paidUp: rows.filter((r) => r.status === "paid_up").length,
-    behind: rows.filter((r) => r.status === "behind").length,
-    ahead: rows.filter((r) => r.status === "ahead").length,
-    dueSoFar: rows.reduce((s, r) => s + (r.dues?.dueSoFar ?? 0), 0),
-    collected: rows.reduce((s, r) => s + (r.dues?.paid ?? 0), 0),
-    owing: rows.reduce((s, r) => s + (r.dues?.owing ?? 0), 0),
-    semesterTotal: rows.reduce((s, r) => s + (r.dues?.semesterTotal ?? 0), 0),
+  const rows = db.members
+    .filter((m) =>
+      db.memberSemesters.some((x) => x.memberId === m.id && x.semesterId === semesterId),
+    )
+    .map((m) => listItem(m, semesterId));
+  const active = rows.filter((r) => r.member.isActive);
+  const counts: Record<DuesStatus, number> = { paid_up: 0, behind: 0, ahead: 0 };
+  for (const r of active) if (r.status) counts[r.status] += 1;
+  const drivesMap = new Map<string, DriveSummary>();
+  for (const r of active) {
+    const d = drivesMap.get(r.member.drive) ?? {
+      drive: r.member.drive,
+      members: 0,
+      paidUp: 0,
+      behind: 0,
+      ahead: 0,
+      owing: 0,
+      paid: 0,
+    };
+    d.members += 1;
+    if (r.status === "paid_up") d.paidUp += 1;
+    if (r.status === "behind") d.behind += 1;
+    if (r.status === "ahead") d.ahead += 1;
+    d.owing += r.dues?.owing ?? 0;
+    d.paid += r.dues?.paid ?? 0;
+    drivesMap.set(r.member.drive, d);
+  }
+  const sum = (f: (r: MemberListItem) => number, list = rows) => list.reduce((s, r) => s + f(r), 0);
+  const t = today();
+  return clone({
+    semester: semesterDetail(semester),
+    activeMembers: active.length,
+    dueSoFar: sum((r) => r.dues?.dueSoFar ?? 0),
+    semesterTotal: sum((r) => r.dues?.semesterTotal ?? 0),
+    collected: db.payments
+      .filter((p) => p.semesterId === semesterId)
+      .reduce((s, p) => s + p.amount, 0),
+    owingTotal: sum((r) => r.dues?.owing ?? 0),
+    creditTotal: sum((r) => r.dues?.credit ?? 0),
+    counts,
+    drives: [...drivesMap.values()].sort((a, b) => a.drive.localeCompare(b.drive)),
+    mostBehind: active
+      .filter((r) => r.status === "behind")
+      .sort((a, b) => (b.dues?.owing ?? 0) - (a.dues?.owing ?? 0))
+      .slice(0, 5),
+    balance: cashPosition().balance,
+    pendingHandovers: db.handovers.filter((h) => !h.confirmedAt).length,
+    collectedToday: db.payments.filter((p) => p.paidOn === t).reduce((s, p) => s + p.amount, 0),
   });
 }
 
-export async function getReport(from: ISODate, to: ISODate): Promise<Report> {
+export async function getReport(from: IsoDate, to: IsoDate): Promise<Report> {
+  await delay();
   requireAdmin();
-  const inRange = (d: string) => d >= from && d <= to;
-  const payments = store.payments.filter((p) => inRange(p.paidOn)).sort((a, b) => a.paidOn.localeCompare(b.paidOn));
-  const income = store.income.filter((i) => inRange(i.date));
-  const expenses = store.expenses.filter((e) => inRange(e.date));
-  const incomeBySource = { donation: 0, offering: 0, ticket_sales: 0, fundraising: 0, levy: 0, other: 0 } as Record<IncomeSource, number>;
-  for (const i of income) incomeBySource[i.source] += i.amount;
-  const expensesByCategory: Record<string, number> = {};
-  for (const e of expenses) expensesByCategory[e.category] = (expensesByCategory[e.category] ?? 0) + e.amount;
-  const duesCash = payments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
-  const duesMomo = payments.filter((p) => p.method === "momo").reduce((s, p) => s + p.amount, 0);
-  const incomeTotal = income.reduce((s, i) => s + i.amount, 0);
-  const expensesTotal = expenses.reduce((s, e) => s + e.amount, 0);
-  // Opening balance = everything in minus everything out before the range starts.
-  const openingBalance =
-    store.payments.filter((p) => p.paidOn < from).reduce((s, p) => s + p.amount, 0) +
-    store.income.filter((i) => i.date < from).reduce((s, i) => s + i.amount, 0) -
-    store.expenses.filter((e) => e.date < from).reduce((s, e) => s + e.amount, 0);
-  const duesByDrive: Record<string, number> = {};
-  for (const p of payments) {
-    const drive = findMember(p.memberId).drive || "No drive";
-    duesByDrive[drive] = (duesByDrive[drive] ?? 0) + p.amount;
-  }
-  const net = duesCash + duesMomo + incomeTotal - expensesTotal;
-  return delay({
+  if (from > to) throw new ApiError("The start date must be on or before the end date.", "invalid");
+  const inRange = (d: string) => from <= d && d <= to;
+  const payments = db.payments.filter((p) => inRange(p.paidOn)).sort(byNewest);
+  const income = db.income.filter((i) => inRange(i.date)).sort(byNewest);
+  const expenses = db.expenses.filter((e) => inRange(e.date)).sort(byNewest);
+  const sum = (xs: { amount: number }[]) => xs.reduce((s, x) => s + x.amount, 0);
+
+  const sources = new Map<IncomeSource, number>();
+  for (const i of income) sources.set(i.source, (sources.get(i.source) ?? 0) + i.amount);
+  const categories = new Map<string, number>();
+  for (const e of expenses)
+    categories.set(e.category, (categories.get(e.category) ?? 0) + e.amount);
+
+  const duesNet = sum(payments);
+  const incomeTotal = sum(income);
+  const expensesTotal = sum(expenses);
+  return clone({
     from,
     to,
-    openingBalance,
-    closingBalance: openingBalance + net,
-    duesByDrive,
-    duesCollected: duesCash + duesMomo,
-    duesCash,
-    duesMomo,
-    incomeBySource,
-    incomeTotal,
-    expensesByCategory,
-    expensesTotal,
-    net,
-    payments,
-    income,
-    expenses,
+    dues: {
+      cash: sum(payments.filter((p) => p.method === "cash" && !p.reversesPaymentId)),
+      momo: sum(payments.filter((p) => p.method === "momo" && !p.reversesPaymentId)),
+      reversals: sum(payments.filter((p) => p.reversesPaymentId)),
+      net: duesNet,
+      receipts: payments.filter((p) => !p.reversesPaymentId).length,
+    },
+    income: {
+      bySource: [...sources].map(([source, amount]) => ({ source, amount })),
+      total: incomeTotal,
+    },
+    expenses: {
+      byCategory: [...categories].map(([category, amount]) => ({ category, amount })),
+      total: expensesTotal,
+    },
+    totalIn: duesNet + incomeTotal,
+    totalOut: expensesTotal,
+    net: duesNet + incomeTotal - expensesTotal,
+    payments: payments.map(paymentRow),
+    incomeRows: income.map(incomeRow),
+    expenseRows: expenses.map(expenseRow),
+    handovers: db.handovers.filter((h) => inRange(h.recordedAt.slice(0, 10))).map(handoverRow),
   });
 }
 
-// ---------------------------------------------------------------------------
-// Semester setup
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/* Semester settings                                                    */
+/* ------------------------------------------------------------------ */
 
-export async function saveSemester(input: SemesterInput): Promise<Semester> {
-  requireSuperAdmin();
+export async function saveSemester(input: SemesterInput): Promise<SemesterDetail> {
+  await delay();
+  const actor = requireSuperAdmin();
+  const name = requireText(input.name, "A name", 2);
+  if (!input.startsOn || !input.endsOn || input.startsOn > input.endsOn) {
+    throw new ApiError("The semester must end after it starts.", "invalid");
+  }
+  // One row per Monday from the week containing the start date to the end date.
+  const mondays: IsoDate[] = [];
+  for (let d = mondayOf(input.startsOn); d <= input.endsOn; d = addDays(d, 7)) mondays.push(d);
+  if (mondays.length > 30)
+    throw new ApiError("A semester cannot be longer than 30 weeks.", "invalid");
+
+  let semester: Semester;
   if (input.id) {
-    const sem = findSemester(input.id);
-    Object.assign(sem, { name: input.name, startsOn: input.startsOn, endsOn: input.endsOn });
-    audit("update", "semesters", `Updated semester ${sem.name}`);
-    return delay(sem);
+    semester = findSemester(input.id);
+    if (semester.isClosed) throw new ApiError("A closed semester cannot be changed.", "closed");
+    const previous = weeksOf(semester.id);
+    semester.name = name;
+    semester.startsOn = input.startsOn;
+    semester.endsOn = input.endsOn;
+    db.weeks = db.weeks.filter((w) => w.semesterId !== semester.id);
+    mondays.forEach((weekStart, i) => {
+      const kept = previous.find((w) => w.weekStart === weekStart);
+      db.weeks.push(
+        kept
+          ? { ...kept, weekNo: i + 1 }
+          : { id: nextId("wk"), semesterId: semester.id, weekNo: i + 1, weekStart, counts: true },
+      );
+    });
+    audit(
+      actor,
+      "Updated semester",
+      "semesters",
+      `${name}: ${input.startsOn} to ${input.endsOn}, ${mondays.length} weeks`,
+    );
+  } else {
+    const previous = currentSemesterRecord();
+    semester = {
+      id: nextId("sem"),
+      name,
+      startsOn: input.startsOn,
+      endsOn: input.endsOn,
+      isClosed: false,
+    };
+    db.semesters.push(semester);
+    mondays.forEach((weekStart, i) => {
+      db.weeks.push({
+        id: nextId("wk"),
+        semesterId: semester.id,
+        weekNo: i + 1,
+        weekStart,
+        counts: true,
+      });
+    });
+    for (const category of ["executive", "member"] as const) {
+      const prevRate =
+        previous && db.rates.find((r) => r.semesterId === previous.id && r.category === category);
+      db.rates.push({
+        semesterId: semester.id,
+        category,
+        weeklyAmount: prevRate?.weeklyAmount ?? (category === "executive" ? 1000 : 500),
+      });
+    }
+    for (const m of db.members.filter((x) => x.isActive)) {
+      db.memberSemesters.push({
+        memberId: m.id,
+        semesterId: semester.id,
+        category: m.category,
+        startWeekNo: 1,
+      });
+    }
+    audit(
+      actor,
+      "Created semester",
+      "semesters",
+      `${name}: ${input.startsOn} to ${input.endsOn}, ${mondays.length} weeks`,
+    );
   }
-  if (!input.name.trim()) throw new ApiError("Give the semester a name.");
-  if (input.endsOn <= input.startsOn) throw new ApiError("The end date must be after the start date.");
-  // Rates carry over from the most recent semester, so the Director only changes what's new.
-  const previous = [...store.semesters].sort((a, b) => b.startsOn.localeCompare(a.startsOn))[0];
-  const sem: Semester = { id: uid("sem"), name: input.name.trim(), startsOn: input.startsOn, endsOn: input.endsOn, isClosed: false };
-  store.semesters.push(sem);
-  // Weeks are generated Monday by Monday from the week containing the start date.
-  let monday = mondayOf(input.startsOn);
-  let weekNo = 1;
-  while (monday <= input.endsOn) {
-    store.weeks.push({ id: uid("wk"), semesterId: sem.id, weekNo, weekStart: monday, counts: true });
-    monday = addDays(monday, 7);
-    weekNo += 1;
-  }
-  for (const category of ["executive", "member"] as const) {
-    const weeklyAmount = previous ? rateFor(previous.id, category) : category === "executive" ? 1000 : 500;
-    store.rates.push({ semesterId: sem.id, category, weeklyAmount });
-  }
-  // Every active member joins from week 1.
-  for (const m of store.members.filter((x) => x.isActive)) {
-    store.memberSemesters.push({ memberId: m.id, semesterId: sem.id, category: m.category, startWeekNo: 1 });
-  }
-  audit("create", "semesters", `Created semester ${sem.name} with ${weekNo - 1} weeks`);
-  return delay(sem);
+  persist();
+  return clone(semesterDetail(semester));
 }
 
-/** Adds more weeks to the end of a semester (like "Add more weeks" in HIS Finance). */
-export async function addWeeks(semesterId: string, count: number): Promise<SemesterWeek[]> {
-  requireSuperAdmin();
-  const sem = findSemester(semesterId);
-  if (sem.isClosed) throw new ApiError("This semester is closed.");
-  if (!Number.isInteger(count) || count < 1 || count > 20) throw new ApiError("Add between 1 and 20 weeks.");
-  const weeks = store.weeks.filter((w) => w.semesterId === semesterId).sort((a, b) => a.weekNo - b.weekNo);
-  const last = weeks[weeks.length - 1];
-  let monday = last ? addDays(last.weekStart, 7) : mondayOf(sem.startsOn);
-  let weekNo = last ? last.weekNo + 1 : 1;
-  for (let i = 0; i < count; i++) {
-    store.weeks.push({ id: uid("wk"), semesterId, weekNo, weekStart: monday, counts: true });
-    monday = addDays(monday, 7);
-    weekNo += 1;
-  }
-  sem.endsOn = addDays(monday, -1);
-  audit("update", "semester_weeks", `Added ${count} week${count === 1 ? "" : "s"} to ${sem.name}`);
-  return delay(store.weeks.filter((w) => w.semesterId === semesterId));
-}
-
-/** Changes the week a member starts paying from (late joiners). */
-export async function setStartWeek(memberId: string, semesterId: string, startWeekNo: number): Promise<MemberSemester> {
-  requireAdmin();
-  if (findSemester(semesterId).isClosed) throw new ApiError("This semester is closed.");
-  const ms = store.memberSemesters.find((x) => x.memberId === memberId && x.semesterId === semesterId);
-  if (!ms) throw new ApiError("This member isn't in that semester.");
-  const exists = store.weeks.some((w) => w.semesterId === semesterId && w.weekNo === startWeekNo);
-  if (!exists) throw new ApiError("Choose a week in this semester.");
-  ms.startWeekNo = startWeekNo;
-  audit("update", "member_semesters", `${findMember(memberId).fullName} now starts paying from week ${startWeekNo}`);
-  return delay(ms);
-}
-
-function mondayOf(date: ISODate): ISODate {
-  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
-  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = Sunday
-  return addDays(date, dow === 0 ? -6 : 1 - dow);
-}
-
-export async function setWeekCounts(weekId: string, counts: boolean, label?: string): Promise<SemesterWeek> {
-  requireAdmin();
-  const week = store.weeks.find((w) => w.id === weekId);
-  if (!week) throw new ApiError("Week not found.");
-  if (findSemester(week.semesterId).isClosed) throw new ApiError("This semester is closed.");
+export async function setWeekCounts(
+  weekId: string,
+  counts: boolean,
+  label?: string,
+): Promise<SemesterWeek> {
+  await delay();
+  const actor = requireSuperAdmin();
+  const week = db.weeks.find((w) => w.id === weekId);
+  if (!week) throw new ApiError("That week could not be found.", "not_found");
+  const semester = requireOpenSemester(week.semesterId);
   week.counts = counts;
-  if (counts) delete week.label;
-  else week.label = label?.trim() || "No dues this week";
-  audit("update", "semester_weeks", `Week ${week.weekNo} ${counts ? "now counts" : `no longer counts (${week.label})`}`);
-  return delay(week);
+  const text = label?.trim();
+  if (text) week.label = text;
+  else delete week.label;
+  audit(
+    actor,
+    counts ? "Counted week" : "Skipped week",
+    "semester_weeks",
+    `${semester.name} week ${week.weekNo} (${week.weekStart})${text ? `: ${text}` : ""}`,
+  );
+  persist();
+  return clone(week);
 }
 
-export async function setRates(semesterId: string, rates: { category: MemberCategory; weeklyAmount: number }[]): Promise<DuesRate[]> {
-  requireSuperAdmin();
-  if (findSemester(semesterId).isClosed) throw new ApiError("This semester is closed.");
-  for (const r of rates) {
-    if (!Number.isInteger(r.weeklyAmount) || r.weeklyAmount < 0) throw new ApiError("Rates must be whole pesewas.");
-    const row = store.rates.find((x) => x.semesterId === semesterId && x.category === r.category);
-    if (row) row.weeklyAmount = r.weeklyAmount;
-    else store.rates.push({ semesterId, ...r });
+export async function setRates(semesterId: string, rates: RatesInput): Promise<SemesterDetail> {
+  await delay();
+  const actor = requireSuperAdmin();
+  const semester = requireOpenSemester(semesterId);
+  for (const category of ["executive", "member"] as const) {
+    const amount = rates[category];
+    if (!Number.isSafeInteger(amount) || amount < 0)
+      throw new ApiError("Rates must be zero or more.", "invalid");
+    const existing = db.rates.find((r) => r.semesterId === semesterId && r.category === category);
+    if (existing) existing.weeklyAmount = amount;
+    else db.rates.push({ semesterId, category, weeklyAmount: amount });
   }
-  audit("update", "dues_rates", `Set rates: ${rates.map((r) => `${r.category} ${formatCedi(r.weeklyAmount)}/week`).join(", ")}`);
-  return delay(store.rates.filter((r) => r.semesterId === semesterId));
+  audit(
+    actor,
+    "Set dues rates",
+    "dues_rates",
+    `${semester.name}: executives ${formatCedi(rates.executive)}, members ${formatCedi(rates.member)} a week`,
+  );
+  persist();
+  return clone(semesterDetail(semester));
 }
 
 export async function closeSemester(semesterId: string): Promise<Semester> {
-  requireSuperAdmin();
-  const sem = findSemester(semesterId);
-  sem.isClosed = true;
-  audit("close", "semesters", `Closed ${sem.name}`);
-  return delay(sem);
+  await delay();
+  const actor = requireSuperAdmin();
+  const semester = findSemester(semesterId);
+  if (semester.isClosed) throw new ApiError(`${semester.name} is already closed.`, "invalid");
+  semester.isClosed = true;
+  audit(
+    actor,
+    "Closed semester",
+    "semesters",
+    `${semester.name} closed. No more money can be recorded against it.`,
+  );
+  persist();
+  return clone(semester);
 }
 
-// ---------------------------------------------------------------------------
-// Audit
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/* Accounts and roles                                                   */
+/* ------------------------------------------------------------------ */
+
+export async function issueSetupCode(memberId: string): Promise<SetupCodeResult> {
+  await delay();
+  const actor = requireAdmin();
+  const member = findMember(memberId);
+  if (!member.isActive) throw new ApiError("This member is no longer active.", "inactive");
+  const setupCode = String(Math.floor(100000 + Math.random() * 900000));
+  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+  const cred = db.credentials[member.id];
+  cred.setupCode = setupCode;
+  cred.setupCodeExpiresAt = expiresAt;
+  // A new setup code is also how a forgotten PIN is reset.
+  cred.pin = null;
+  cred.failedAttempts = 0;
+  member.isActivated = false;
+  member.isLocked = false;
+  audit(actor, "Issued setup code", "members", `${member.memberCode} · ${member.fullName}`);
+  persist();
+  return { setupCode, expiresAt };
+}
+
+export async function unlockMember(memberId: string): Promise<Member> {
+  await delay();
+  const actor = requireAdmin();
+  const member = findMember(memberId);
+  member.isLocked = false;
+  db.credentials[member.id].failedAttempts = 0;
+  audit(actor, "Unlocked member", "members", `${member.memberCode} · ${member.fullName}`);
+  persist();
+  return clone(member);
+}
+
+export async function setRole(memberId: string, role: Role, position: Position): Promise<Member> {
+  await delay();
+  const actor = requireSuperAdmin();
+  const member = findMember(memberId);
+  const finalPosition = role === "member" ? null : position;
+  if (
+    member.id === actor.id &&
+    role !== "super_admin" &&
+    !db.members.some((m) => m.id !== actor.id && m.role === "super_admin")
+  ) {
+    throw new ApiError("There must always be at least one Director with full access.", "invalid");
+  }
+  // Each office is held by one person at a time.
+  if (finalPosition) {
+    for (const other of db.members)
+      if (other.id !== member.id && other.position === finalPosition) other.position = null;
+  }
+  member.role = role;
+  member.position = finalPosition;
+  audit(
+    actor,
+    "Changed role",
+    "members",
+    `${member.memberCode} · ${member.fullName} is now ${finalPosition ?? (role === "member" ? "a member" : role)}`,
+  );
+  persist();
+  return clone(member);
+}
 
 export async function listAudit(filters: AuditFilters = {}): Promise<AuditEntry[]> {
+  await delay();
   requireSuperAdmin();
-  const rows = store.audit
-    .filter((a) => !filters.table || a.table === filters.table)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .slice(0, filters.limit ?? 200);
-  return delay(rows);
+  const search = filters.search?.trim().toLowerCase() ?? "";
+  return clone(
+    db.audit
+      .filter((a) => !filters.table || a.table === filters.table)
+      .filter(
+        (a) => !search || `${a.actorName} ${a.action} ${a.summary}`.toLowerCase().includes(search),
+      )
+      .slice(0, 300),
+  );
 }
 
-/** Lookup helper for display names (officers, recorders). */
-export async function listOfficers(): Promise<Member[]> {
-  me();
-  return delay(store.members.filter((m) => m.role !== "member" && m.isActive));
+/* ------------------------------------------------------------------ */
+/* Development only                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * DEV ONLY. Powers the "Preview as" switch in development builds.
+ * The Supabase version should keep this export as a function that throws,
+ * because the switch is never rendered in production builds (see src/lib/env.ts).
+ */
+export async function devPreviewAs(memberCode: string): Promise<Session> {
+  if (!isDemo) throw new ApiError("Preview is only available in development.", "forbidden");
+  await delay();
+  const member = db.members.find((m) => m.memberCode === memberCode);
+  if (!member) throw new ApiError("Unknown member.", "not_found");
+  db.session = { memberId: member.id, pendingOfficerId: null };
+  persist();
+  return clone({ member });
 }
 
-/** Mock-only sign-in hints for development builds. Not part of the real API. */
-export const DEV_SIGN_IN_HINTS = MOCK_HINTS;
+/** DEV ONLY. Restores the demo data. */
+export async function devResetMockData(): Promise<void> {
+  if (!isDemo) throw new ApiError("Reset is only available in development.", "forbidden");
+  await delay();
+  const memberId = db.session.memberId;
+  db = createSeed(today());
+  db.session.memberId = memberId;
+  persist();
+}

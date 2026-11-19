@@ -1,39 +1,37 @@
+import { useEffect, useRef } from "react";
 import { WifiOff } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useOnlineStatus } from "@/lib/online";
+import { useFlash } from "./Flash";
 
-function subscribe(cb: () => void) {
-  window.addEventListener("online", cb);
-  window.addEventListener("offline", cb);
-  return () => {
-    window.removeEventListener("online", cb);
-    window.removeEventListener("offline", cb);
-  };
-}
-
-/** Shows when the phone has no connection. Screens keep showing the last data they loaded. */
+/** Tells people clearly, but quietly, when the phone has no connection. */
 export function OfflineBanner() {
-  const online = useSyncExternalStore(
-    subscribe,
-    () => navigator.onLine,
-    () => true,
-  );
-  const [since, setSince] = useState<string | null>(null);
+  const online = useOnlineStatus();
+  const flash = useFlash();
+  const wasOffline = useRef(false);
 
   useEffect(() => {
-    if (online) setSince(null);
-    else {
-      const d = new Date();
-      setSince(`${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")} ${d.getHours() < 12 ? "am" : "pm"}`);
+    if (!online) wasOffline.current = true;
+    else if (wasOffline.current) {
+      wasOffline.current = false;
+      flash("Back online. Everything is up to date.", "success");
     }
-  }, [online]);
+  }, [online, flash]);
 
   if (online) return null;
   return (
-    <div role="status" className="bg-stage px-4 py-2 text-stage-foreground print:hidden">
-      <p className="mx-auto flex max-w-lg items-center gap-2 font-medium">
-        <WifiOff className="size-5 shrink-0 text-gold" aria-hidden />
-        You're offline. Showing what was loaded before {since ?? "now"}. Saving is paused.
-      </p>
+    <div
+      role="status"
+      className="anim-fade mt-3 mb-1 flex items-start gap-3 rounded-[0.875rem] bg-cell p-3.5 shadow-[var(--shadow)]"
+    >
+      <span className="inline-flex size-[1.875rem] shrink-0 items-center justify-center rounded-[0.45rem] bg-[#8d8a85] text-white">
+        <WifiOff aria-hidden className="size-[1.1rem]" strokeWidth={2.2} />
+      </span>
+      <div>
+        <p className="text-headline font-semibold">No Internet Connection</p>
+        <p className="text-subhead text-label-2">
+          You can still see what was saved on this phone. Recording money needs a connection.
+        </p>
+      </div>
     </div>
   );
 }

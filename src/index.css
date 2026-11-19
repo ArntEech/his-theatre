@@ -1,0 +1,438 @@
+@import "tailwindcss";
+
+/*
+ * His Theatre design tokens, modelled on Apple's Human Interface Guidelines.
+ * Semantic colours (label, fill, separator, grouped backgrounds) adapt between light and dark,
+ * and dark mode raises elevated surfaces (cells, sheets) to lighter shades instead of adding shadows.
+ * Brand: gold #F2B62A tint, charcoal #343434, cream #FBF8F1, status green/orange/blue.
+ */
+:root {
+  color-scheme: light;
+  --grouped: #fbf8f1; /* systemGroupedBackground: cream */
+  --cell: #ffffff; /* secondarySystemGroupedBackground */
+  --grouped-elevated: #fbf8f1;
+  --cell-elevated: #ffffff;
+  --fill: rgb(120 112 96 / 0.12); /* tertiarySystemFill, warmed to suit cream */
+  --fill-strong: rgb(120 112 96 / 0.2);
+  --highlight: rgb(120 112 96 / 0.16); /* pressed row */
+  --label: #343434;
+  --segment: #ffffff; /* selected segment */
+  --label-2: rgb(52 52 52 / 0.72);
+  --label-3: rgb(52 52 52 / 0.42);
+  --separator: rgb(52 52 52 / 0.16);
+  --bar: rgb(251 248 241 / 0.82); /* translucent bar material */
+  --tint: #f2b62a; /* fills: buttons, progress, switches */
+  --tint-pressed: #c98a06;
+  --tint-text: #8f6200; /* tint for text and glyphs on light surfaces (5:1 contrast) */
+  --on-tint: #343434;
+  --paid: #2e7d4f;
+  --behind: #b4532a;
+  --ahead: #2f6690;
+  --paid-text: #2b7449;
+  --behind-text: #a0441d;
+  --ahead-text: #2c5f86;
+  --destructive: #a0441d;
+  --shadow: 0 1px 2px rgb(52 52 52 / 0.06), 0 8px 24px -12px rgb(52 52 52 / 0.18);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --grouped: #343434;
+  --cell: #414141;
+  --grouped-elevated: #3b3b3b;
+  --cell-elevated: #4a4a4a;
+  --fill: rgb(251 248 241 / 0.1);
+  --fill-strong: rgb(251 248 241 / 0.16);
+  --highlight: rgb(251 248 241 / 0.12);
+  --label: #fbf8f1;
+  --segment: #666666;
+  --label-2: rgb(251 248 241 / 0.7);
+  --label-3: rgb(251 248 241 / 0.4);
+  --separator: rgb(251 248 241 / 0.14);
+  --bar: rgb(52 52 52 / 0.8);
+  --tint-text: #f2b62a;
+  --paid-text: #63c891;
+  --behind-text: #f08f66;
+  --ahead-text: #7db4e3;
+  --destructive: #f08f66;
+  --shadow: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --grouped: #343434;
+    --cell: #414141;
+    --grouped-elevated: #3b3b3b;
+    --cell-elevated: #4a4a4a;
+    --fill: rgb(251 248 241 / 0.1);
+    --fill-strong: rgb(251 248 241 / 0.16);
+    --highlight: rgb(251 248 241 / 0.12);
+    --label: #fbf8f1;
+    --segment: #666666;
+    --label-2: rgb(251 248 241 / 0.7);
+    --label-3: rgb(251 248 241 / 0.4);
+    --separator: rgb(251 248 241 / 0.14);
+    --bar: rgb(52 52 52 / 0.8);
+    --tint-text: #f2b62a;
+    --paid-text: #63c891;
+    --behind-text: #f08f66;
+    --ahead-text: #7db4e3;
+    --destructive: #f08f66;
+    --shadow: none;
+  }
+}
+
+/* Increase Contrast accessibility setting. */
+@media (prefers-contrast: more) {
+  :root {
+    --label-2: rgb(52 52 52 / 0.88);
+    --label-3: rgb(52 52 52 / 0.62);
+    --separator: rgb(52 52 52 / 0.32);
+  }
+  :root[data-theme="dark"] {
+    --label-2: rgb(251 248 241 / 0.88);
+    --label-3: rgb(251 248 241 / 0.62);
+    --separator: rgb(251 248 241 / 0.3);
+  }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --label-2: rgb(251 248 241 / 0.88);
+    --label-3: rgb(251 248 241 / 0.62);
+    --separator: rgb(251 248 241 / 0.3);
+  }
+}
+
+/* Sheets and other modal surfaces sit one level up. */
+.surface-elevated {
+  --grouped: var(--grouped-elevated);
+  --cell: var(--cell-elevated);
+}
+
+@theme inline {
+  --color-grouped: var(--grouped);
+  --color-cell: var(--cell);
+  --color-fill: var(--fill);
+  --color-fill-strong: var(--fill-strong);
+  --color-highlight: var(--highlight);
+  --color-label: var(--label);
+  --color-label-2: var(--label-2);
+  --color-label-3: var(--label-3);
+  --color-separator: var(--separator);
+  --color-bar: var(--bar);
+  --color-tint: var(--tint);
+  --color-tint-pressed: var(--tint-pressed);
+  --color-tint-text: var(--tint-text);
+  --color-on-tint: var(--on-tint);
+  --color-paid: var(--paid);
+  --color-behind: var(--behind);
+  --color-ahead: var(--ahead);
+  --color-paid-text: var(--paid-text);
+  --color-behind-text: var(--behind-text);
+  --color-ahead-text: var(--ahead-text);
+  --color-destructive: var(--destructive);
+
+  /* San Francisco on Apple devices, Roboto on Android, Segoe on Windows. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-rounded: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, Roboto, sans-serif;
+
+  /* Apple text styles (Dynamic Type "Large" defaults), in rem so the in-app text size scales them. */
+  --text-large-title: 2.125rem;
+  --text-large-title--line-height: 2.5625rem;
+  --text-title1: 1.75rem;
+  --text-title1--line-height: 2.125rem;
+  --text-title2: 1.375rem;
+  --text-title2--line-height: 1.75rem;
+  --text-title3: 1.25rem;
+  --text-title3--line-height: 1.5625rem;
+  --text-headline: 1.0625rem;
+  --text-headline--line-height: 1.375rem;
+  --text-body: 1.0625rem;
+  --text-body--line-height: 1.375rem;
+  --text-callout: 1rem;
+  --text-callout--line-height: 1.3125rem;
+  --text-subhead: 0.9375rem;
+  --text-subhead--line-height: 1.25rem;
+  --text-footnote: 0.8125rem;
+  --text-footnote--line-height: 1.125rem;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-caption2: 0.6875rem;
+  --text-caption2--line-height: 0.8125rem;
+
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Tabular figures so amounts line up in lists. */
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* SF Rounded for headline figures, as in Health and Fitness. */
+@utility figure {
+  font-family: var(--font-rounded);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+@utility hairline-b {
+  border-bottom: 0.5px solid var(--separator);
+}
+
+@utility material {
+  background-color: var(--bar);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+@layer base {
+  html {
+    background-color: var(--grouped);
+    color: var(--label);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* In-app text size (Profile → Appearance). Everything is in rem, so the whole app scales. */
+  html[data-text-size="large"] {
+    font-size: 115%;
+  }
+
+  html[data-text-size="larger"] {
+    font-size: 130%;
+  }
+
+  body {
+    min-height: 100dvh;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    letter-spacing: -0.008em;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--tint);
+    outline-offset: 2px;
+  }
+
+  input,
+  select,
+  textarea {
+    color: var(--label);
+  }
+
+  ::placeholder {
+    color: var(--label-3);
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--tint) 45%, transparent);
+  }
+
+  dialog::backdrop {
+    background: rgb(0 0 0 / 0.4);
+    animation: backdrop-in 0.3s ease both;
+  }
+
+  dialog.is-closing::backdrop {
+    animation: backdrop-out 0.25s ease both;
+  }
+}
+
+/* List rows: separators are inset to the text, and hidden above the first row. */
+.list-row + .list-row .row-content {
+  border-top: 0.5px solid var(--separator);
+}
+
+/* iOS activity indicator: eight fading spokes. */
+.activity {
+  position: relative;
+  display: inline-block;
+  width: 1.25em;
+  height: 1.25em;
+  flex-shrink: 0;
+}
+.activity > span {
+  position: absolute;
+  left: 46.25%;
+  top: 0;
+  width: 7.5%;
+  height: 28%;
+  border-radius: 999px;
+  background: currentColor;
+  transform-origin: 50% 178.5%;
+  animation: spinner-fade 0.8s linear infinite;
+}
+
+@keyframes spinner-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.22;
+  }
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes backdrop-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes push-in {
+  from {
+    transform: translateX(30%);
+    opacity: 0.35;
+  }
+}
+@keyframes pop-in {
+  from {
+    transform: translateX(-14%);
+    opacity: 0.5;
+  }
+}
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes sheet-out {
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes form-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(2rem) scale(0.97);
+  }
+}
+@keyframes form-sheet-out {
+  to {
+    opacity: 0;
+    transform: translateY(1rem) scale(0.98);
+  }
+}
+@keyframes banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-1.5rem) scale(0.96);
+  }
+}
+@keyframes skeleton {
+  50% {
+    opacity: 0.5;
+  }
+}
+@keyframes success-pop {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes check-draw {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Navigation: push slides in from the trailing edge, pop from the leading edge, tabs dissolve. */
+.anim-push {
+  animation: push-in 0.42s var(--ease-ios) both;
+}
+.anim-pop {
+  animation: pop-in 0.38s var(--ease-ios) both;
+}
+.anim-fade {
+  animation: fade-in 0.22s ease-out both;
+}
+.anim-sheet {
+  animation: sheet-in 0.45s var(--ease-ios) both;
+}
+.is-closing .anim-sheet {
+  animation: sheet-out 0.26s cubic-bezier(0.4, 0, 1, 1) both;
+}
+@media (min-width: 768px) {
+  .anim-sheet {
+    animation: form-sheet-in 0.38s var(--ease-ios) both;
+  }
+  .is-closing .anim-sheet {
+    animation: form-sheet-out 0.2s ease-in both;
+  }
+}
+.anim-banner {
+  animation: banner-in 0.45s var(--ease-ios) both;
+}
+.skeleton {
+  animation: skeleton 1.4s ease-in-out infinite;
+}
+.anim-success {
+  animation: success-pop 0.5s var(--ease-ios) both;
+}
+.anim-check {
+  stroke-dasharray: 24;
+  animation: check-draw 0.35s 0.25s ease-out both;
+}
+
+/* Reduce Motion: replace movement with dissolves rather than removing feedback. */
+@media (prefers-reduced-motion: reduce) {
+  .anim-push,
+  .anim-pop,
+  .anim-sheet,
+  .anim-banner,
+  .anim-success {
+    animation: fade-in 0.2s ease-out both !important;
+  }
+  .is-closing .anim-sheet {
+    animation: backdrop-out 0.15s ease both !important;
+  }
+  .skeleton {
+    animation: none;
+  }
+  .anim-check {
+    animation: none;
+    stroke-dasharray: none;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  html,
+  body {
+    background: #fff;
+    color: #000;
+  }
+}

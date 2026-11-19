@@ -1,6 +1,13 @@
-import { cn } from "@/lib/utils";
+import logoUrl from "@/assets/his-logo.webp";
+import { cx } from "@/lib/cx";
 
-/** The ministry logo, served from public/brand/ (no outside hosting). */
 export function Logo({ className }: { className?: string }) {
-  return <img src="/brand/his-logo.png" alt="HIS Theatre Ministry" className={cn("object-contain", className)} />;
+  return (
+    <img
+      src={logoUrl}
+      alt="HIS Theatre Ministry crest"
+      className={cx("h-auto select-none", className)}
+      draggable={false}
+    />
+  );
 }
