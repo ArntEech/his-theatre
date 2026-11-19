@@ -150,7 +150,7 @@ export function ReportsScreen() {
               {Object.entries(report.duesByDrive)
                 .sort((a, b) => b[1] - a[1])
                 .map(([drive, v]) => (
-                  <Line key={drive} label={`${drive} drive`} value={v} quiet />
+                  <Line key={drive} label={drive} value={v} quiet />
                 ))}
             </Group>
             <Group title="Other income" total={report.incomeTotal}>
@@ -274,7 +274,7 @@ function statementRows(r: Report, rangeLabel: string): Cell[][] {
   const rows: Cell[][] = [["HIS Theatre Ministry finance statement"], [rangeLabel], [], ["Item", "Amount (GH₵)"]];
   rows.push(["Opening balance", cedis(r.openingBalance)]);
   rows.push(["Dues collected", cedis(r.duesCollected)], ["  Cash", cedis(r.duesCash)], ["  MoMo", cedis(r.duesMomo)]);
-  for (const [drive, v] of Object.entries(r.duesByDrive)) rows.push([`  ${drive} drive`, cedis(v)]);
+  for (const [drive, v] of Object.entries(r.duesByDrive)) rows.push([`  ${drive}`, cedis(v)]);
   rows.push(["Other income", cedis(r.incomeTotal)]);
   for (const [s, v] of Object.entries(r.incomeBySource)) if (v) rows.push([`  ${INCOME_SOURCE_LABEL[s as IncomeSource]}`, cedis(v)]);
   rows.push(["Spending", cedis(-r.expensesTotal)]);
