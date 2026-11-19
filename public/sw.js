@@ -2,11 +2,17 @@
 // Pages: network first, falling back to the last cached copy.
 // Static files (scripts, styles, fonts, icons): cache first, refreshed in the background.
 // Data never goes through here: the app shows its own "You're offline" banner.
-const CACHE = "his-theatre-v1";
+const CACHE = "his-theatre-v2";
 const SHELL = ["/", "/manifest.webmanifest", "/favicon.png", "/brand/his-logo.png", "/icons/icon-192.png"];
 
+// Each file is cached on its own, so one missing file can't stop the app from installing.
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(
+    caches
+      .open(CACHE)
+      .then((c) => Promise.all(SHELL.map((url) => c.add(url).catch(() => undefined))))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener("activate", (event) => {
