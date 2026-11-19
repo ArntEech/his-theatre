@@ -1,0 +1,279 @@
+/*
+ * Tailwind v4 entry: config lives here, with no tailwind.config.js or PostCSS plugin.
+ * Keep every @import in this top block. Never @import a remote URL.
+ */
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+@import "@fontsource-variable/fraunces";
+@import "@fontsource-variable/figtree";
+
+/* Dark mode follows the phone's setting. */
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+/*
+ * His Theatre design system — "theatre programme".
+ * Brand: Gold #F2B62A, Deep gold #C98A06, Charcoal #343434, Cream #FBF8F1.
+ * Status: Paid up #2E7D4F, Behind #B4532A, Ahead #2F6690 (always paired with words).
+ */
+
+@theme inline {
+  --font-sans: "Figtree Variable", system-ui, sans-serif;
+  --font-display: "Fraunces Variable", Georgia, serif;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+
+  --color-gold: var(--gold);
+  --color-gold-deep: var(--gold-deep);
+  --color-gold-text: var(--gold-text);
+  --color-stage: var(--stage);
+  --color-stage-foreground: var(--stage-foreground);
+  --color-paper: var(--paper);
+  --color-status-paid: var(--status-paid);
+  --color-status-behind: var(--status-behind);
+  --color-status-ahead: var(--status-ahead);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.75rem;
+
+  --gold: oklch(0.81 0.157 82.8); /* #F2B62A */
+  --gold-deep: oklch(0.68 0.141 76.2); /* #C98A06 */
+  --gold-text: oklch(0.5 0.11 74); /* deep gold darkened for small text on cream */
+  --charcoal: oklch(0.325 0 0); /* #343434 */
+  --cream: oklch(0.98 0.01 87.5); /* #FBF8F1 */
+
+  --background: var(--cream);
+  --foreground: var(--charcoal);
+  --paper: oklch(0.995 0.006 87);
+  --card: var(--paper);
+  --card-foreground: var(--charcoal);
+  --popover: var(--paper);
+  --popover-foreground: var(--charcoal);
+  --primary: var(--gold);
+  --primary-foreground: var(--charcoal);
+  --secondary: oklch(0.945 0.025 85);
+  --secondary-foreground: var(--charcoal);
+  --muted: oklch(0.95 0.016 85);
+  --muted-foreground: oklch(0.44 0.012 75);
+  --accent: oklch(0.93 0.05 86);
+  --accent-foreground: var(--charcoal);
+  --destructive: oklch(0.52 0.17 30);
+  --destructive-foreground: var(--cream);
+  --border: oklch(0.87 0.035 82);
+  --input: oklch(0.82 0.04 80);
+  --ring: var(--gold-deep);
+
+  --stage: var(--charcoal);
+  --stage-foreground: var(--cream);
+
+  --status-paid: oklch(0.529 0.106 154.6); /* #2E7D4F */
+  --status-behind: oklch(0.557 0.137 41.9); /* #B4532A */
+  --status-ahead: oklch(0.493 0.089 244.2); /* #2F6690 */
+
+  --chart-1: var(--gold);
+  --chart-2: var(--status-paid);
+  --chart-3: var(--status-ahead);
+  --chart-4: var(--status-behind);
+  --chart-5: var(--gold-deep);
+  --sidebar: var(--paper);
+  --sidebar-foreground: var(--charcoal);
+  --sidebar-primary: var(--gold);
+  --sidebar-primary-foreground: var(--charcoal);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--charcoal);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--gold-deep);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: var(--charcoal);
+    --foreground: var(--cream);
+    --paper: oklch(0.37 0.006 80);
+    --card: var(--paper);
+    --card-foreground: var(--cream);
+    --popover: oklch(0.39 0.006 80);
+    --popover-foreground: var(--cream);
+    --primary: var(--gold);
+    --primary-foreground: var(--charcoal);
+    --secondary: oklch(0.41 0.01 80);
+    --secondary-foreground: var(--cream);
+    --muted: oklch(0.39 0.008 80);
+    --muted-foreground: oklch(0.84 0.012 85);
+    --accent: oklch(0.43 0.03 80);
+    --accent-foreground: var(--cream);
+    --destructive: oklch(0.7 0.15 30);
+    --destructive-foreground: var(--charcoal);
+    --border: oklch(0.47 0.02 80);
+    --input: oklch(0.52 0.02 80);
+    --gold-text: var(--gold);
+    --stage: oklch(0.255 0 0);
+    --stage-foreground: var(--cream);
+    --status-paid: oklch(0.78 0.12 154.6);
+    --status-behind: oklch(0.76 0.12 41.9);
+    --status-ahead: oklch(0.78 0.08 244.2);
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+  }
+  :focus-visible {
+    outline: 2px solid var(--gold-deep);
+    outline-offset: 2px;
+  }
+}
+
+/* Money: Fraunces with tabular, lining numbers so columns line up. */
+@utility num {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-optical-sizing: auto;
+  letter-spacing: -0.01em;
+}
+
+/* Small-caps programme label above headings. */
+@utility eyebrow {
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold-text);
+}
+
+/* The double rule from a printed programme. */
+@utility programme-rule {
+  border-top: 3px double var(--gold-deep);
+}
+
+/* A card that looks like a printed ticket / programme page. */
+@utility ticket {
+  position: relative;
+  background-color: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow:
+    0 1px 0 oklch(1 0 0 / 0.6) inset,
+    0 10px 30px -18px oklch(0.25 0.03 70 / 0.45);
+}
+
+/* Perforated tear line with notches cut into the ticket edges. */
+@utility ticket-tear {
+  position: relative;
+  border-top: 2px dashed var(--border);
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    top: -12px;
+    width: 22px;
+    height: 22px;
+    border-radius: 9999px;
+    background-color: var(--background);
+    border: 1px solid var(--border);
+  }
+  &::before {
+    left: -12px;
+    clip-path: inset(0 0 0 50%);
+  }
+  &::after {
+    right: -12px;
+    clip-path: inset(0 50% 0 0);
+  }
+}
+
+/* Stage-light glow behind the hero number. */
+@utility spotlight {
+  background-image: radial-gradient(
+    120% 80% at 50% 0%,
+    color-mix(in oklch, var(--gold) 22%, transparent) 0%,
+    transparent 70%
+  );
+}
+
+@utility safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@utility animate-rise {
+  animation: rise 0.35s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
