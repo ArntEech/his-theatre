@@ -46,6 +46,7 @@ export const {
   setRates,
   closeSemester,
   issueSetupCode,
+  issueSetupCodes,
   unlockMember,
   setRole,
   listAudit,

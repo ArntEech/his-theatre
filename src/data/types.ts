@@ -36,7 +36,45 @@ export interface Member {
   leftOn: IsoDate | null;
   isActivated: boolean;
   isLocked: boolean;
+  /**
+   * What they do in the group, e.g. "Drama Director" or "Secretary"; "" for most members.
+   * Shown under their name. Separate from `position`, which gives finance powers.
+   */
+  portfolio: string;
+  /** Details from the registration form. Seen only by the member and by officers. */
+  profile: MemberProfile;
 }
+
+export type JoinedAs = "new" | "continuing";
+
+export interface MemberProfile {
+  /** Birthday as day and month only; the year is never asked. Both set, or both null. */
+  birthDay: number | null;
+  birthMonth: number | null;
+  /** University level, e.g. 100, 200, 300, 400. */
+  level: number | null;
+  /** Whether they joined as a new or continuing member. */
+  joinedAs: JoinedAs | null;
+  course: string;
+  hall: string;
+  /** Other drives they are interested in, as written on the form. */
+  driveInterests: string;
+  /** e.g. "None yet", "Some (church/school)", "Experienced". */
+  experience: string;
+  experienceNotes: string;
+}
+
+export const EMPTY_PROFILE: MemberProfile = {
+  birthDay: null,
+  birthMonth: null,
+  level: null,
+  joinedAs: null,
+  course: "",
+  hall: "",
+  driveInterests: "",
+  experience: "",
+  experienceNotes: "",
+};
 
 export interface Semester {
   id: string;
@@ -369,11 +407,17 @@ export interface NewMemberInput {
   phone: string;
   drive: string;
   category: MemberCategory;
+  /** e.g. "Drama Director"; leave out for most members. */
+  portfolio?: string;
   /** Week of the current semester their dues start. */
   startWeekNo: number;
 }
 
-export type MemberUpdate = Partial<Pick<Member, "fullName" | "phone" | "drive" | "category">>;
+export type MemberUpdate = Partial<
+  Pick<Member, "fullName" | "phone" | "drive" | "category" | "portfolio">
+> & {
+  profile?: Partial<MemberProfile>;
+};
 
 export interface RecordPaymentInput {
   memberId: string;
@@ -432,6 +476,14 @@ export interface RatesInput {
 export interface SetupCodeResult {
   setupCode: string;
   expiresAt: IsoDateTime;
+}
+
+/** One line of a batch of setup codes, ready to send to each person. */
+export interface SetupCodeListItem extends SetupCodeResult {
+  memberId: string;
+  memberCode: string;
+  fullName: string;
+  phone: string;
 }
 
 export class ApiError extends Error {

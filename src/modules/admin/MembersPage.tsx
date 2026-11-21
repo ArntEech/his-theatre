@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { UserPlus } from "lucide-react";
+import { KeyRound, UserPlus } from "lucide-react";
 import { useMembers } from "@/data/queries";
 import type { DuesStatus, MemberListItem } from "@/data/types";
 import { PageHeader } from "@/components/PageHeader";
 import { ButtonLink } from "@/components/Button";
 import { SearchField, Segmented, Switch } from "@/components/Field";
-import { ListItem, ListRow, ListSection } from "@/components/List";
+import { IconTile, ListItem, ListRow, ListSection } from "@/components/List";
 import { Avatar } from "@/components/Avatar";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -50,6 +50,9 @@ export function MembersPage() {
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [list.data]);
 
+  const notSignedIn = (all.data ?? []).filter(
+    (i) => i.member.isActive && !i.member.isActivated,
+  ).length;
   const owing = (list.data ?? []).reduce((s, i) => s + (i.dues?.owing ?? 0), 0);
 
   return (
@@ -68,6 +71,17 @@ export function MembersPage() {
           </ButtonLink>
         }
       />
+
+      {notSignedIn > 0 && (
+        <ListSection>
+          <ListRow
+            to="/admin/members/setup-codes"
+            leading={<IconTile icon={KeyRound} color="orange" />}
+            title="Setup Codes"
+            subtitle={`${notSignedIn} ${notSignedIn === 1 ? "person hasn't" : "people haven't"} signed in yet`}
+          />
+        </ListSection>
+      )}
 
       <div className="mb-6 flex flex-col gap-3">
         <SearchField

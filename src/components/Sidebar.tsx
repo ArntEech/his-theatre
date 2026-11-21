@@ -1,5 +1,6 @@
 import { NavLink } from "react-router";
 import {
+  ChevronRight,
   ArrowLeftRight,
   CalendarDays,
   ClipboardList,
@@ -98,13 +99,23 @@ export function Sidebar({ member }: { member: Member | null | undefined }) {
         )}
       </nav>
       {member && (
-        <div className="flex items-center gap-3 border-t-[0.5px] border-separator px-5 py-4">
+        <NavLink
+          to="/profile"
+          aria-label={`Your profile: ${member.fullName}`}
+          className={({ isActive }) =>
+            cx(
+              "flex items-center gap-3 border-t-[0.5px] border-separator px-5 py-4 transition-colors hover:bg-fill active:bg-fill",
+              isActive && "bg-fill",
+            )
+          }
+        >
           <Avatar name={member.fullName} size="sm" />
-          <span className="min-w-0">
+          <span className="min-w-0 flex-1">
             <span className="block truncate text-subhead font-semibold">{member.fullName}</span>
             <span className="block truncate text-footnote text-label-2">{roleLabel(member)}</span>
           </span>
-        </div>
+          <ChevronRight aria-hidden className="size-4 shrink-0 text-label-3" />
+        </NavLink>
       )}
     </aside>
   );

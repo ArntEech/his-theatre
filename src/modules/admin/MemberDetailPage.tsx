@@ -12,6 +12,7 @@ import {
 import { useApiMutation, useCurrentMember, useCurrentSemester, useMember } from "@/data/queries";
 import type {
   Member,
+  JoinedAs,
   MemberCategory,
   PaymentRow,
   Position,
@@ -21,8 +22,11 @@ import type {
 import { PageHeader } from "@/components/PageHeader";
 import { Button, ButtonLink } from "@/components/Button";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
+import { setupCodeMessage } from "@/lib/whatsapp";
 import { MoneyField, Segmented, SelectField, TextAreaField, TextField } from "@/components/Field";
 import { IconTile, ListRow, ListSection, ValueRow } from "@/components/List";
+import { hasProfile, ProfileRows } from "@/components/ProfileRows";
+import { formatBirthday, parseBirthday } from "@/lib/profile";
 import { Sheet } from "@/components/Sheet";
 import { ContentUnavailable, ErrorNotice, InlineError, LoadingBlock } from "@/components/States";
 import { useFlash } from "@/components/Flash";
@@ -151,6 +155,14 @@ export function MemberDetailPage() {
         />
         {d.memberSemester && (
           <ValueRow label="Dues start" value={`Week ${d.memberSemester.startWeekNo}`} />
+        )}
+      </ListSection>
+
+      <ListSection header="Profile">
+        {hasProfile(member.profile) ? (
+          <ProfileRows profile={member.profile} />
+        ) : (
+          <ValueRow label="Registration details" value="Not added yet" />
         )}
       </ListSection>
 
@@ -333,11 +345,7 @@ function SetupCodeSheet({ open, onClose, member }: SheetProps) {
           </p>
           <WhatsAppButton
             phone={member.phone}
-            message={[
-              `Hello ${firstName(member.fullName)}, here is your His Theatre setup code: ${result.setupCode}`,
-              `Open ${location.origin}/activate, enter your member ID ${member.memberCode} and this code, then choose a 4-digit PIN.`,
-              `The code works once and expires ${formatDateTime(result.expiresAt)}. Please don't share it.`,
-            ].join("\n\n")}
+            message={setupCodeMessage({ ...member, ...result }, location.origin)}
           >
             Send Code on WhatsApp
           </WhatsAppButton>
@@ -375,6 +383,17 @@ function EditSheet({ open, onClose, member }: SheetProps) {
   const [phone, setPhone] = useState(member.phone);
   const [drive, setDrive] = useState(member.drive);
   const [category, setCategory] = useState<MemberCategory>(member.category);
+  const [portfolio, setPortfolio] = useState(member.portfolio);
+  const p = member.profile;
+  const [birthday, setBirthday] = useState(formatBirthday(p));
+  const [level, setLevel] = useState(p.level ? String(p.level) : "");
+  const [joinedAs, setJoinedAs] = useState<JoinedAs | "">(p.joinedAs ?? "");
+  const [course, setCourse] = useState(p.course);
+  const [hall, setHall] = useState(p.hall);
+  const [driveInterests, setDriveInterests] = useState(p.driveInterests);
+  const [experience, setExperience] = useState(p.experience);
+  const [experienceNotes, setExperienceNotes] = useState(p.experienceNotes);
+  const [formError, setFormError] = useState<string | null>(null);
   const update = useApiMutation(updateMember);
 
   function close() {
@@ -382,13 +401,40 @@ function EditSheet({ open, onClose, member }: SheetProps) {
     setPhone(member.phone);
     setDrive(member.drive);
     setCategory(member.category);
+    setPortfolio(member.portfolio);
+    setBirthday(formatBirthday(p));
+    setLevel(p.level ? String(p.level) : "");
+    setJoinedAs(p.joinedAs ?? "");
+    setCourse(p.course);
+    setHall(p.hall);
+    setDriveInterests(p.driveInterests);
+    setExperience(p.experience);
+    setExperienceNotes(p.experienceNotes);
+    setFormError(null);
     update.reset();
     onClose();
   }
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    update.mutate([member.id, { fullName, phone, drive, category }], {
+    const day = birthday.trim() ? parseBirthday(birthday) : null;
+    if (birthday.trim() && !day) {
+      setFormError("Write the birthday like 12 April.");
+      return;
+    }
+    setFormError(null);
+    const profile = {
+      birthDay: day?.birthDay ?? null,
+      birthMonth: day?.birthMonth ?? null,
+      level: level ? Number(level) : null,
+      joinedAs: joinedAs || null,
+      course,
+      hall,
+      driveInterests,
+      experience,
+      experienceNotes,
+    };
+    update.mutate([member.id, { fullName, phone, drive, category, portfolio, profile }], {
       onSuccess: () => {
         flash("Details saved.", "success");
         onClose();
@@ -411,6 +457,15 @@ function EditSheet({ open, onClose, member }: SheetProps) {
           onChange={(e) => setPhone(e.target.value)}
         />
         <TextField label="Drive" value={drive} onChange={(e) => setDrive(e.target.value)} />
+        <TextField
+          label="Portfolio"
+          optional
+          maxLength={60}
+          placeholder="e.g. Drama Director"
+          hint="Shown under their name. Officer powers are set separately, under Role."
+          value={portfolio}
+          onChange={(e) => setPortfolio(e.target.value)}
+        />
         <Segmented<MemberCategory>
           label="Dues category"
           value={category}
@@ -425,6 +480,60 @@ function EditSheet({ open, onClose, member }: SheetProps) {
             The weekly rate for this semester will change to the {category} rate.
           </p>
         )}
+        <p className="mt-2 px-1 text-footnote font-semibold tracking-wide text-label-2 uppercase">
+          Profile
+        </p>
+        <TextField
+          label="Birthday"
+          optional
+          placeholder="12 April"
+          hint="Day and month only."
+          value={birthday}
+          onChange={(e) => setBirthday(e.target.value)}
+        />
+        <TextField
+          label="Level"
+          optional
+          inputMode="numeric"
+          placeholder="300"
+          value={level}
+          onChange={(e) => setLevel(e.target.value.replace(/\D/g, "").slice(0, 3))}
+        />
+        <Segmented<JoinedAs | "">
+          label="Joined as"
+          value={joinedAs}
+          onChange={setJoinedAs}
+          options={[
+            { value: "", label: "Not given" },
+            { value: "new", label: "New" },
+            { value: "continuing", label: "Continuing" },
+          ]}
+        />
+        <TextField label="Course" optional maxLength={120} value={course} onChange={(e) => setCourse(e.target.value)} />
+        <TextField label="Hall of residence" optional maxLength={120} value={hall} onChange={(e) => setHall(e.target.value)} />
+        <TextField
+          label="Drive interests"
+          optional
+          maxLength={200}
+          value={driveInterests}
+          onChange={(e) => setDriveInterests(e.target.value)}
+        />
+        <TextField
+          label="Experience"
+          optional
+          maxLength={60}
+          placeholder="Some (church/school)"
+          value={experience}
+          onChange={(e) => setExperience(e.target.value)}
+        />
+        <TextField
+          label="Experience details"
+          optional
+          maxLength={500}
+          value={experienceNotes}
+          onChange={(e) => setExperienceNotes(e.target.value)}
+        />
+        {formError && <p className="px-1 text-footnote text-destructive">{formError}</p>}
         <InlineError error={update.error} />
         <Button type="submit" block loading={update.isPending} className="mt-2">
           Save

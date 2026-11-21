@@ -3,6 +3,7 @@
  * ONLY src/data/api.ts may import this file. Screens must go through api.ts.
  */
 import type {
+  MemberProfile,
   Adjustment,
   AuditEntry,
   DuesRate,
@@ -60,7 +61,7 @@ export interface MockDb {
   session: { memberId: string | null; pendingOfficerId: string | null };
 }
 
-export const SEED_VERSION = 4;
+export const SEED_VERSION = 6;
 
 /** Demo credentials, shown on the sign-in screen in development builds only. */
 export const DEMO_PIN = "1234";
@@ -155,6 +156,8 @@ export function createSeed(today: IsoDate): MockDb {
       leftOn: null,
       isActivated: true,
       isLocked: false,
+      portfolio: position ?? (category === "executive" ? DEMO_PORTFOLIOS[n % DEMO_PORTFOLIOS.length]! : ""),
+      profile: demoProfile(n),
       ...memberExtra,
     };
     members.push(member);
@@ -445,3 +448,22 @@ export function createSeed(today: IsoDate): MockDb {
     session: { memberId: null, pendingOfficerId: null },
   };
 }
+
+/** Made-up registration details so the profile screens have something to show. */
+function demoProfile(n: number): MemberProfile {
+  const courses = ["BSc. Computer Science", "BA. Economics", "Actuarial Science", "Bachelor of Arts", "BSc. Biochemistry"];
+  const halls = ["Akuafo Hall", "Commonwealth Hall", "Volta Hall", "Legon Hall", "Mensah Sarbah Hall"];
+  return {
+    birthDay: ((n * 7) % 28) + 1,
+    birthMonth: ((n * 5) % 12) + 1,
+    level: [100, 200, 300, 400][n % 4]!,
+    joinedAs: n % 5 === 0 ? "new" : "continuing",
+    course: courses[n % courses.length]!,
+    hall: halls[(n * 3) % halls.length]!,
+    driveInterests: n % 5 === 0 ? "Tribe of Judah, Divine Pulse" : "",
+    experience: n % 5 === 0 ? "Some (church/school)" : "",
+    experienceNotes: "",
+  };
+}
+
+const DEMO_PORTFOLIOS = ["Secretary", "Drama Director", "Media Head", "Dance Coordinator", "Prayer Secretary"];

@@ -31,6 +31,7 @@ export function AddMemberPage() {
   const [drive, setDrive] = useState("");
   const [newDrive, setNewDrive] = useState("");
   const [category, setCategory] = useState<MemberCategory>("member");
+  const [portfolio, setPortfolio] = useState("");
   const [startWeekNo, setStartWeekNo] = useState(1);
   const add = useApiMutation(addMember);
 
@@ -45,7 +46,7 @@ export function AddMemberPage() {
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    add.mutate([{ fullName, phone, drive: driveValue, category, startWeekNo }], {
+    add.mutate([{ fullName, phone, drive: driveValue, category, portfolio, startWeekNo }], {
       onSuccess: (m) => {
         flash(
           `${m.memberCode} added. Issue a setup code so ${firstName(m.fullName)} can sign in.`,
@@ -98,6 +99,17 @@ export function AddMemberPage() {
             { value: "executive", label: "Executive" },
           ]}
         />
+        {category === "executive" && (
+          <TextField
+            label="Portfolio"
+            optional
+            maxLength={60}
+            placeholder="e.g. Drama Director"
+            hint="Shown under their name."
+            value={portfolio}
+            onChange={(e) => setPortfolio(e.target.value)}
+          />
+        )}
         {semester.data && (
           <SelectField
             label="Dues start from"

@@ -659,7 +659,7 @@ begin
   perform set_config('his.trusted', 'off', true);
 end $$;
 
--- Officers: a one-time 6-digit setup code (valid 72 hours). Issuing one resets the PIN.
+-- Officers: a one-time 6-digit setup code (valid 7 days). Issuing one resets the PIN.
 create or replace function public.issue_setup_code(p_member uuid)
 returns text language plpgsql security definer set search_path = '' as $$
 declare code text;
@@ -672,7 +672,7 @@ begin
   insert into private.member_secrets (member_id) values (p_member) on conflict (member_id) do nothing;
   update private.member_secrets
      set setup_code_hash = extensions.crypt(code, extensions.gen_salt('bf', 10)),
-         setup_code_expires_at = now() + interval '72 hours',
+         setup_code_expires_at = now() + interval '7 days',
          pin_hash = null, failed_attempts = 0, total_failed = 0, locked_until = null, updated_at = now()
    where member_id = p_member;
   perform set_config('his.trusted', 'on', true);
