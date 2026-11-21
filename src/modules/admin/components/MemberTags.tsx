@@ -4,7 +4,8 @@ import { formatDate } from "@/lib/dates";
 /** Account states as short words for list subtitles. */
 export function memberFlags(member: Member): { text: string; tone: "normal" | "warning" }[] {
   const flags: { text: string; tone: "normal" | "warning" }[] = [];
-  if (member.position) flags.push({ text: member.position, tone: "normal" });
+  if (member.portfolio || member.position)
+    flags.push({ text: member.portfolio || member.position || "", tone: "normal" });
   if (!member.isActive)
     flags.push({
       text: `Left${member.leftOn ? ` ${formatDate(member.leftOn)}` : ""}`,

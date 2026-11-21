@@ -71,6 +71,7 @@ import {
   type SemesterInput,
   type SemesterWeek,
   type Session,
+  type SetupCodeListItem,
   type SetupCodeResult,
   type TodayReport,
 } from "./types";
@@ -170,6 +171,7 @@ const toMember = (r: Row): Member => ({
   leftOn: r.left_on ?? null,
   isActivated: r.is_activated ?? true,
   isLocked: r.is_locked ?? false,
+  portfolio: r.portfolio ?? "",
   profile: {
     birthDay: r.birth_day ?? null,
     birthMonth: r.birth_month ?? null,
@@ -672,7 +674,13 @@ export async function addMember(input: NewMemberInput): Promise<Member> {
   const row = await run<Row>(
     sb()
       .from("members")
-      .insert({ full_name: fullName, phone, drive, category: input.category })
+      .insert({
+        full_name: fullName,
+        phone,
+        drive,
+        category: input.category,
+        portfolio: (input.portfolio ?? "").trim().slice(0, 60),
+      })
       .select()
       .single(),
   );
@@ -706,6 +714,11 @@ export async function updateMember(id: string, patch: MemberUpdate): Promise<Mem
   }
   if (patch.drive !== undefined) update.drive = requireText(patch.drive, "Drive", 1, 60);
   if (patch.category !== undefined) update.category = patch.category;
+  if (patch.portfolio !== undefined) {
+    const portfolio = patch.portfolio.trim();
+    if (portfolio.length > 60) throw new ApiError("Portfolio is too long (60 letters at most).", "invalid");
+    update.portfolio = portfolio;
+  }
   if (patch.profile) Object.assign(update, profileColumns(patch.profile));
   const row = await run<Row>(sb().from("members").update(update).eq("id", id).select().single());
   changed();
@@ -1181,7 +1194,30 @@ export async function issueSetupCode(memberId: string): Promise<SetupCodeResult>
   const setupCode = await run<string>(sb().rpc("issue_setup_code", { p_member: memberId }));
   changed();
   // The code is shown once, here, and is never saved on this device.
-  return { setupCode, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString() };
+  return { setupCode, expiresAt: new Date(Date.now() + SETUP_CODE_DAYS * DAY_MS).toISOString() };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SETUP_CODE_DAYS = 7;
+
+/** Setup codes for many people at once, e.g. everyone who hasn't signed in yet. */
+export async function issueSetupCodes(memberIds: string[]): Promise<SetupCodeListItem[]> {
+  const { s } = await asAdmin();
+  const people = memberIds.map((id) => findMember(s, id)).filter((m) => m.isActive);
+  const out: SetupCodeListItem[] = [];
+  for (const m of people) {
+    const setupCode = await run<string>(sb().rpc("issue_setup_code", { p_member: m.id }));
+    out.push({
+      memberId: m.id,
+      memberCode: m.memberCode,
+      fullName: m.fullName,
+      phone: m.phone,
+      setupCode,
+      expiresAt: new Date(Date.now() + SETUP_CODE_DAYS * DAY_MS).toISOString(),
+    });
+  }
+  changed();
+  return out;
 }
 
 export async function unlockMember(memberId: string): Promise<Member> {

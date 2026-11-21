@@ -36,6 +36,11 @@ export interface Member {
   leftOn: IsoDate | null;
   isActivated: boolean;
   isLocked: boolean;
+  /**
+   * What they do in the group, e.g. "Drama Director" or "Secretary"; "" for most members.
+   * Shown under their name. Separate from `position`, which gives finance powers.
+   */
+  portfolio: string;
   /** Details from the registration form. Seen only by the member and by officers. */
   profile: MemberProfile;
 }
@@ -402,11 +407,15 @@ export interface NewMemberInput {
   phone: string;
   drive: string;
   category: MemberCategory;
+  /** e.g. "Drama Director"; leave out for most members. */
+  portfolio?: string;
   /** Week of the current semester their dues start. */
   startWeekNo: number;
 }
 
-export type MemberUpdate = Partial<Pick<Member, "fullName" | "phone" | "drive" | "category">> & {
+export type MemberUpdate = Partial<
+  Pick<Member, "fullName" | "phone" | "drive" | "category" | "portfolio">
+> & {
   profile?: Partial<MemberProfile>;
 };
 
@@ -467,6 +476,14 @@ export interface RatesInput {
 export interface SetupCodeResult {
   setupCode: string;
   expiresAt: IsoDateTime;
+}
+
+/** One line of a batch of setup codes, ready to send to each person. */
+export interface SetupCodeListItem extends SetupCodeResult {
+  memberId: string;
+  memberCode: string;
+  fullName: string;
+  phone: string;
 }
 
 export class ApiError extends Error {

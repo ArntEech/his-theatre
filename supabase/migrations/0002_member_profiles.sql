@@ -17,4 +17,8 @@ alter table public.members
   add column experience        text not null default '' check (length(experience) <= 60),
   add column experience_notes  text not null default '' check (length(experience_notes) <= 500),
   add column registered_at     timestamptz,
+  -- What they do in the group, e.g. "Drama Director", "Secretary". Shown under their name.
+  -- Separate from the three finance offices (Director, Financial Secretary, Treasurer),
+  -- which are what give officer powers.
+  add column portfolio         text not null default '' check (length(portfolio) <= 60),
   add constraint members_birthday_both check ((birth_day is null) = (birth_month is null));

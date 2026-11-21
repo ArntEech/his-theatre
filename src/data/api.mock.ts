@@ -55,6 +55,7 @@ import {
   type Session,
   type SetupCodeResult,
   type TodayReport,
+  SetupCodeListItem,
 } from "./types";
 import { EMPTY_PROFILE } from "./types";
 import { createSeed, SEED_VERSION, type MockDb } from "./mock/seed";
@@ -626,6 +627,7 @@ export async function addMember(input: NewMemberInput): Promise<Member> {
     leftOn: null,
     isActivated: false,
     isLocked: false,
+    portfolio: (input.portfolio ?? "").trim().slice(0, 60),
     profile: { ...EMPTY_PROFILE },
   };
   db.members.push(member);
@@ -680,6 +682,10 @@ export async function updateMember(id: string, patch: MemberUpdate): Promise<Mem
       semester && db.memberSemesters.find((x) => x.memberId === id && x.semesterId === semester.id);
     if (ms && semester && !semester.isClosed) ms.category = patch.category;
     changes.push("category");
+  }
+  if (patch.portfolio !== undefined && patch.portfolio.trim() !== member.portfolio) {
+    member.portfolio = patch.portfolio.trim().slice(0, 60);
+    changes.push("portfolio");
   }
   if (patch.profile) {
     const next = { ...member.profile, ...patch.profile };
@@ -1324,10 +1330,33 @@ export async function closeSemester(semesterId: string): Promise<Semester> {
 export async function issueSetupCode(memberId: string): Promise<SetupCodeResult> {
   await delay();
   const actor = requireAdmin();
-  const member = findMember(memberId);
+  const result = newSetupCode(actor, findMember(memberId));
+  persist();
+  return result;
+}
+
+/** Setup codes for many people at once, e.g. everyone who hasn't signed in yet. */
+export async function issueSetupCodes(memberIds: string[]): Promise<SetupCodeListItem[]> {
+  await delay();
+  const actor = requireAdmin();
+  const out = memberIds
+    .map((id) => findMember(id))
+    .filter((m) => m.isActive)
+    .map((m) => ({
+      memberId: m.id,
+      memberCode: m.memberCode,
+      fullName: m.fullName,
+      phone: m.phone,
+      ...newSetupCode(actor, m),
+    }));
+  persist();
+  return out;
+}
+
+function newSetupCode(actor: Member, member: Member): SetupCodeResult {
   if (!member.isActive) throw new ApiError("This member is no longer active.", "inactive");
   const setupCode = String(Math.floor(100000 + Math.random() * 900000));
-  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const cred = db.credentials[member.id];
   cred.setupCode = setupCode;
   cred.setupCodeExpiresAt = expiresAt;
@@ -1337,7 +1366,6 @@ export async function issueSetupCode(memberId: string): Promise<SetupCodeResult>
   member.isActivated = false;
   member.isLocked = false;
   audit(actor, "Issued setup code", "members", `${member.memberCode} · ${member.fullName}`);
-  persist();
   return { setupCode, expiresAt };
 }
 

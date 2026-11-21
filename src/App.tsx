@@ -17,6 +17,7 @@ import { AdminHomePage } from "@/modules/admin/AdminHomePage";
 import { TodayPage } from "@/modules/admin/TodayPage";
 import { MembersPage } from "@/modules/admin/MembersPage";
 import { AddMemberPage } from "@/modules/admin/AddMemberPage";
+import { SetupCodesPage } from "@/modules/admin/SetupCodesPage";
 import { MemberDetailPage } from "@/modules/admin/MemberDetailPage";
 import { RecordPaymentPage } from "@/modules/admin/RecordPaymentPage";
 import { ExpensesPage } from "@/modules/admin/ExpensesPage";
@@ -112,6 +113,7 @@ export default function App() {
                   ["today", <TodayPage />],
                   ["members", <MembersPage />],
                   ["members/new", <AddMemberPage />],
+                  ["members/setup-codes", <SetupCodesPage />],
                   ["members/:id", <MemberDetailPage />],
                   ["pay", <RecordPaymentPage />],
                   ["expenses", <ExpensesPage />],

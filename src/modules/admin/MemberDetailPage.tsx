@@ -22,6 +22,7 @@ import type {
 import { PageHeader } from "@/components/PageHeader";
 import { Button, ButtonLink } from "@/components/Button";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
+import { setupCodeMessage } from "@/lib/whatsapp";
 import { MoneyField, Segmented, SelectField, TextAreaField, TextField } from "@/components/Field";
 import { IconTile, ListRow, ListSection, ValueRow } from "@/components/List";
 import { hasProfile, ProfileRows } from "@/components/ProfileRows";
@@ -344,11 +345,7 @@ function SetupCodeSheet({ open, onClose, member }: SheetProps) {
           </p>
           <WhatsAppButton
             phone={member.phone}
-            message={[
-              `Hello ${firstName(member.fullName)}, here is your His Theatre setup code: ${result.setupCode}`,
-              `Open ${location.origin}/activate, enter your member ID ${member.memberCode} and this code, then choose a 4-digit PIN.`,
-              `The code works once and expires ${formatDateTime(result.expiresAt)}. Please don't share it.`,
-            ].join("\n\n")}
+            message={setupCodeMessage({ ...member, ...result }, location.origin)}
           >
             Send Code on WhatsApp
           </WhatsAppButton>
@@ -386,6 +383,7 @@ function EditSheet({ open, onClose, member }: SheetProps) {
   const [phone, setPhone] = useState(member.phone);
   const [drive, setDrive] = useState(member.drive);
   const [category, setCategory] = useState<MemberCategory>(member.category);
+  const [portfolio, setPortfolio] = useState(member.portfolio);
   const p = member.profile;
   const [birthday, setBirthday] = useState(formatBirthday(p));
   const [level, setLevel] = useState(p.level ? String(p.level) : "");
@@ -403,6 +401,7 @@ function EditSheet({ open, onClose, member }: SheetProps) {
     setPhone(member.phone);
     setDrive(member.drive);
     setCategory(member.category);
+    setPortfolio(member.portfolio);
     setBirthday(formatBirthday(p));
     setLevel(p.level ? String(p.level) : "");
     setJoinedAs(p.joinedAs ?? "");
@@ -435,7 +434,7 @@ function EditSheet({ open, onClose, member }: SheetProps) {
       experience,
       experienceNotes,
     };
-    update.mutate([member.id, { fullName, phone, drive, category, profile }], {
+    update.mutate([member.id, { fullName, phone, drive, category, portfolio, profile }], {
       onSuccess: () => {
         flash("Details saved.", "success");
         onClose();
@@ -458,6 +457,15 @@ function EditSheet({ open, onClose, member }: SheetProps) {
           onChange={(e) => setPhone(e.target.value)}
         />
         <TextField label="Drive" value={drive} onChange={(e) => setDrive(e.target.value)} />
+        <TextField
+          label="Portfolio"
+          optional
+          maxLength={60}
+          placeholder="e.g. Drama Director"
+          hint="Shown under their name. Officer powers are set separately, under Role."
+          value={portfolio}
+          onChange={(e) => setPortfolio(e.target.value)}
+        />
         <Segmented<MemberCategory>
           label="Dues category"
           value={category}

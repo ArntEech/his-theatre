@@ -209,6 +209,13 @@
     font-size: 130%;
   }
 
+  /* The browser's own pull-to-reload would reload the page and lose anything being typed;
+     the app's pull-to-refresh (PullToRefresh.tsx) fetches fresh data instead. */
+  html,
+  body {
+    overscroll-behavior-y: contain;
+  }
+
   body {
     min-height: 100dvh;
     font-size: var(--text-body);

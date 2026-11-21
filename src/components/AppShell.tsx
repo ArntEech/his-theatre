@@ -8,6 +8,7 @@ import { Sidebar } from "./Sidebar";
 import { PreviewAs } from "./PreviewAs";
 import { OfflineBanner } from "./OfflineBanner";
 import { ThemeToggle } from "./ThemeToggle";
+import { PullToRefresh } from "./PullToRefresh";
 
 const depth = (path: string) => path.split("/").filter(Boolean).length;
 const section = (path: string) => path.split("/").filter(Boolean)[0] ?? "";
@@ -43,6 +44,7 @@ export function AppShell() {
   return (
     <div className="min-h-dvh overflow-x-clip md:pl-[17.5rem]">
       <Sidebar member={member} />
+      <PullToRefresh />
       {isDemo && <PreviewAs />}
       <main className="mx-auto w-full max-w-[44rem] px-4 pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(6.5rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] sm:px-6 md:px-10 md:pb-16">
         <OfflineBanner />

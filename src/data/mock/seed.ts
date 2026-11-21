@@ -61,7 +61,7 @@ export interface MockDb {
   session: { memberId: string | null; pendingOfficerId: string | null };
 }
 
-export const SEED_VERSION = 5;
+export const SEED_VERSION = 6;
 
 /** Demo credentials, shown on the sign-in screen in development builds only. */
 export const DEMO_PIN = "1234";
@@ -156,6 +156,7 @@ export function createSeed(today: IsoDate): MockDb {
       leftOn: null,
       isActivated: true,
       isLocked: false,
+      portfolio: position ?? (category === "executive" ? DEMO_PORTFOLIOS[n % DEMO_PORTFOLIOS.length]! : ""),
       profile: demoProfile(n),
       ...memberExtra,
     };
@@ -464,3 +465,5 @@ function demoProfile(n: number): MemberProfile {
     experienceNotes: "",
   };
 }
+
+const DEMO_PORTFOLIOS = ["Secretary", "Drama Director", "Media Head", "Dance Coordinator", "Prayer Secretary"];
