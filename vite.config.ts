@@ -11,7 +11,8 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: "autoUpdate",
-      injectRegister: "auto",
+      // Registered in src/main.tsx, which also checks for new versions (see there).
+      injectRegister: false,
       includeAssets: ["favicon.png", "icons/apple-touch-icon-180.png"],
       manifest: {
         id: "/",
