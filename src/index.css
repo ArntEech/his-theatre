@@ -35,7 +35,8 @@
   --shadow: 0 1px 2px rgb(52 52 52 / 0.06), 0 8px 24px -12px rgb(52 52 52 / 0.18);
 }
 
-:root[data-theme="dark"] {
+/* Night: soft charcoal. Also what "Automatic" uses when the phone is in dark mode. */
+:root[data-theme="night"] {
   color-scheme: dark;
   --grouped: #343434;
   --cell: #414141;
@@ -59,7 +60,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme]) {
     color-scheme: dark;
     --grouped: #343434;
     --cell: #414141;
@@ -83,6 +84,83 @@
   }
 }
 
+/* Dark: true black, like iOS dark mode. Easiest on OLED screens. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --grouped: #000000;
+  --cell: #1c1c1e;
+  --grouped-elevated: #1c1c1e;
+  --cell-elevated: #2c2c2e;
+  --fill: rgb(255 255 255 / 0.1);
+  --fill-strong: rgb(255 255 255 / 0.16);
+  --highlight: rgb(255 255 255 / 0.12);
+  --label: #f5f3ee;
+  --segment: #3a3a3c;
+  --label-2: rgb(245 243 238 / 0.7);
+  --label-3: rgb(245 243 238 / 0.4);
+  --separator: rgb(255 255 255 / 0.14);
+  --bar: rgb(18 18 18 / 0.78);
+  --tint-text: #f2b62a;
+  --paid-text: #63c891;
+  --behind-text: #f08f66;
+  --ahead-text: #7db4e3;
+  --destructive: #f08f66;
+  --shadow: none;
+}
+
+/*
+ * Glass looks: Clear (iOS), Blur (One UI) and Frosted. Surfaces are see-through glass over a
+ * warm stage backdrop; each look sets how clear, how blurred and how tinted the glass is.
+ */
+:root:is([data-theme="clear"], [data-theme="blur"], [data-theme="frosted"]) {
+  color-scheme: dark;
+  --grouped: transparent;
+  --grouped-elevated: rgb(32 24 20 / 0.72);
+  --cell-elevated: rgb(255 255 255 / 0.1);
+  --fill: rgb(255 255 255 / 0.14);
+  --fill-strong: rgb(255 255 255 / 0.22);
+  --highlight: rgb(255 255 255 / 0.18);
+  --label: #ffffff;
+  --segment: rgb(255 255 255 / 0.3);
+  --label-2: rgb(255 255 255 / 0.78);
+  --label-3: rgb(255 255 255 / 0.52);
+  --separator: rgb(255 255 255 / 0.2);
+  --tint-text: #f7c548;
+  --paid-text: #7fdca6;
+  --behind-text: #ffab86;
+  --ahead-text: #9cc9f0;
+  --destructive: #ffab86;
+  --shadow: 0 10px 30px -14px rgb(0 0 0 / 0.55);
+  --glass-edge: rgb(255 255 255 / 0.22);
+  --wallpaper:
+    radial-gradient(60% 45% at 12% 8%, #c8782f 0%, transparent 70%),
+    radial-gradient(55% 40% at 92% 28%, #2f6b6b 0%, transparent 72%),
+    radial-gradient(70% 50% at 25% 82%, #8a3b4a 0%, transparent 70%),
+    radial-gradient(50% 40% at 88% 92%, #e0a640 0%, transparent 70%),
+    linear-gradient(160deg, #2a1f1a, #161112);
+}
+:root[data-theme="clear"] {
+  --cell: rgb(255 255 255 / 0.07);
+  --bar: rgb(255 255 255 / 0.1);
+  --glass-blur: 3px;
+  --glass-saturate: 170%;
+  --glass-edge: rgb(255 255 255 / 0.34);
+}
+:root[data-theme="blur"] {
+  --cell: rgb(58 42 34 / 0.42);
+  --bar: rgb(48 36 30 / 0.58);
+  --glass-blur: 30px;
+  --glass-saturate: 140%;
+  --glass-edge: rgb(255 255 255 / 0.1);
+}
+:root[data-theme="frosted"] {
+  --cell: rgb(255 255 255 / 0.15);
+  --bar: rgb(255 255 255 / 0.17);
+  --glass-blur: 16px;
+  --glass-saturate: 115%;
+  --glass-edge: rgb(255 255 255 / 0.26);
+}
+
 /* Increase Contrast accessibility setting. */
 @media (prefers-contrast: more) {
   :root {
@@ -90,14 +168,15 @@
     --label-3: rgb(52 52 52 / 0.62);
     --separator: rgb(52 52 52 / 0.32);
   }
-  :root[data-theme="dark"] {
+  :root:is([data-theme="night"], [data-theme="dark"], [data-theme="clear"], [data-theme="blur"], [data-theme="frosted"]) {
     --label-2: rgb(251 248 241 / 0.88);
     --label-3: rgb(251 248 241 / 0.62);
     --separator: rgb(251 248 241 / 0.3);
   }
 }
+
 @media (prefers-contrast: more) and (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme]) {
     --label-2: rgb(251 248 241 / 0.88);
     --label-3: rgb(251 248 241 / 0.62);
     --separator: rgb(251 248 241 / 0.3);
@@ -202,6 +281,11 @@
 
   /* In-app text size (Profile → Appearance). Everything is in rem, so the whole app scales. */
   /* In-app font (Profile → Appearance). The phone's font stays as the fallback while loading. */
+  /* SF Pro (Apple style): Apple's own font on iPhone and Mac, Inter (its closest match) elsewhere. */
+  html[data-font="apple"] {
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+    --font-rounded: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+  }
   html[data-font="nunito"] {
     --font-sans: "Nunito", -apple-system, system-ui, Roboto, sans-serif;
     --font-rounded: "Nunito", ui-rounded, -apple-system, system-ui, Roboto, sans-serif;
@@ -461,6 +545,62 @@
     animation: none;
     stroke-dasharray: none;
   }
+}
+
+/* ---- Glass looks: the backdrop, and glass on every surface ---- */
+:root:is([data-theme="clear"], [data-theme="blur"], [data-theme="frosted"]) {
+  background-color: #1a1414;
+}
+:root:is([data-theme="clear"], [data-theme="blur"], [data-theme="frosted"])::before {
+  /* Fixed backdrop that stays put while the page scrolls (works on iPhone too). */
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--wallpaper);
+}
+:root:is([data-theme="clear"], [data-theme="blur"], [data-theme="frosted"]) .bg-cell {
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow:
+    inset 0 0.5px 0 var(--glass-edge),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.08),
+    var(--shadow);
+}
+/* Glass inside glass doesn't blur twice. */
+:root:is([data-theme="clear"], [data-theme="blur"], [data-theme="frosted"]) .bg-cell .bg-cell {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme="frosted"] .bg-cell,
+:root[data-theme="frosted"] .material {
+  /* Fine grain, like frosted glass. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+:root:is([data-theme="clear"], [data-theme="blur"], [data-theme="frosted"]) .surface-elevated.bg-grouped {
+  /* Sheets: a darker, heavily blurred glass so forms stay easy to read. */
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  backdrop-filter: blur(28px) saturate(140%);
+}
+
+/* ---- Eye care: a warm filter over everything, kinder to eyes at night ---- */
+:root[data-eye-care]::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  background: rgb(255 160 60 / 0.16);
+  mix-blend-mode: multiply;
+}
+:root[data-eye-care] dialog::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: rgb(255 160 60 / 0.16);
+  mix-blend-mode: multiply;
 }
 
 @media print {
