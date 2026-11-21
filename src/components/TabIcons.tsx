@@ -76,3 +76,35 @@ export function ProfileGlyph({ filled, className }: IconProps) {
     </svg>
   );
 }
+
+/** A person with a tick: who was there. */
+export function AttendanceGlyph({ filled, className }: IconProps) {
+  return (
+    <svg
+      {...common}
+      className={className}
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+    >
+      <circle cx="9.5" cy="7.5" r="3.6" />
+      <path d="M2.8 20.2a6.7 6.7 0 0 1 13.4 0z" />
+      <path d="m15.8 11.6 2.2 2.2 4.2-4.6" fill="none" />
+    </svg>
+  );
+}
+
+/** A megaphone: notices for everyone. */
+export function AnnouncementsGlyph({ filled, className }: IconProps) {
+  return (
+    <svg
+      {...common}
+      className={className}
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+    >
+      <path d="M3.5 10a2 2 0 0 1 2-2h3l8.5-4.3v16.6L8.5 16h-3a2 2 0 0 1-2-2z" />
+      <path d="M8.5 16.2 10 20.5" fill="none" />
+      <path d="M20 9.5a3.5 3.5 0 0 1 0 5" fill="none" />
+    </svg>
+  );
+}
