@@ -10,6 +10,7 @@ import { Segmented, TextField } from "@/components/Field";
 import { IconTile, ListItem, ListRow, ListSection, ValueRow } from "@/components/List";
 import { Sheet } from "@/components/Sheet";
 import { Avatar } from "@/components/Avatar";
+import { ProfileRows } from "@/components/ProfileRows";
 import { InlineError } from "@/components/States";
 import { useFlash } from "@/components/Flash";
 import { roleLabel } from "@/lib/roles";
@@ -42,7 +43,7 @@ export function ProfilePage() {
 
       <ListSection
         header="Details"
-        footer="Something wrong? Ask the Financial Secretary to update it."
+        footer="Only you and the officers can see these details. Something wrong? Ask the Financial Secretary to update it."
       >
         <ValueRow label="Member ID" value={me.memberCode} />
         <ValueRow label="Drive" value={me.drive} />
@@ -50,7 +51,8 @@ export function ProfilePage() {
           label="Dues category"
           value={me.category === "executive" ? "Executive" : "Member"}
         />
-        <ValueRow label="Phone" value={me.phone} />
+        <ValueRow label="Phone" value={me.phone || "Not given"} />
+        <ProfileRows profile={me.profile} />
       </ListSection>
 
       <ListSection

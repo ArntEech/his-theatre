@@ -56,6 +56,7 @@ import {
   type SetupCodeResult,
   type TodayReport,
 } from "./types";
+import { EMPTY_PROFILE } from "./types";
 import { createSeed, SEED_VERSION, type MockDb } from "./mock/seed";
 
 /* ------------------------------------------------------------------ */
@@ -625,6 +626,7 @@ export async function addMember(input: NewMemberInput): Promise<Member> {
     leftOn: null,
     isActivated: false,
     isLocked: false,
+    profile: { ...EMPTY_PROFILE },
   };
   db.members.push(member);
   db.credentials[member.id] = {
@@ -678,6 +680,17 @@ export async function updateMember(id: string, patch: MemberUpdate): Promise<Mem
       semester && db.memberSemesters.find((x) => x.memberId === id && x.semesterId === semester.id);
     if (ms && semester && !semester.isClosed) ms.category = patch.category;
     changes.push("category");
+  }
+  if (patch.profile) {
+    const next = { ...member.profile, ...patch.profile };
+    if ((next.birthDay === null) !== (next.birthMonth === null))
+      throw new ApiError("Give both the day and month of the birthday.", "invalid");
+    if (next.level !== null && (!Number.isInteger(next.level) || next.level < 100 || next.level > 900))
+      throw new ApiError("Level should be like 100, 200, 300 or 400.", "invalid");
+    if (JSON.stringify(next) !== JSON.stringify(member.profile)) {
+      member.profile = next;
+      changes.push("profile");
+    }
   }
   if (changes.length)
     audit(

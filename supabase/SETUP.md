@@ -7,7 +7,8 @@ Supabase project: `https://qjpsbsgwxqyqwdoowywh.supabase.co`
 
 1. Supabase → **SQL Editor** → **New query**.
 2. Open `supabase/migrations/0001_his_theatre.sql`, copy all of it, paste, click **Run**. It should say "Success. No rows returned".
-3. **New query** again → paste all of `supabase/setup/02_first_semester.sql` → **Run**. It should show `weeks 9, rates 2`.
+3. **New query** → paste all of `supabase/migrations/0002_member_profiles.sql` → **Run** (adds birthday, level, course, hall and the other registration details).
+4. **New query** again → paste all of `supabase/setup/02_first_semester.sql` → **Run**. It should show `weeks 9, rates 2`.
 
 Run each file **once**. If a run fails halfway, tell Claude before running anything again.
 
