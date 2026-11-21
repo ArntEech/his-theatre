@@ -416,6 +416,19 @@ create trigger weeks_guard            before insert or update or delete on publi
 create trigger rates_guard            before insert or update or delete on public.dues_rates for each row execute function private.guard_closed_semester();
 create trigger member_semesters_guard before update on public.member_semesters for each row execute function private.guard_closed_semester();
 
+-- Any officer may name a week (say "Interim Assessment") and switch its dues on or off.
+-- Only the Director may change which weeks exist or their dates.
+create or replace function private.guard_week_edit()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if private.from_app() and not public.is_super_admin()
+     and (new.semester_id, new.week_no, new.week_start) is distinct from (old.semester_id, old.week_no, old.week_start) then
+    raise exception 'Only the Director can change week dates.';
+  end if;
+  return new;
+end $$;
+create trigger weeks_edit_guard before update on public.semester_weeks for each row execute function private.guard_week_edit();
+
 -- ---------------------------------------------------------------------------
 -- 9. Audit log writer (plain-English summaries)
 -- ---------------------------------------------------------------------------
@@ -729,6 +742,7 @@ create policy semesters_read   on public.semesters      for select to authentica
 create policy semesters_write  on public.semesters      for all    to authenticated using (public.is_super_admin()) with check (public.is_super_admin());
 create policy weeks_read       on public.semester_weeks for select to authenticated using (true);
 create policy weeks_write      on public.semester_weeks for all    to authenticated using (public.is_super_admin()) with check (public.is_super_admin());
+create policy weeks_officer    on public.semester_weeks for update to authenticated using (public.is_admin()) with check (public.is_admin());
 create policy rates_read       on public.dues_rates     for select to authenticated using (true);
 create policy rates_write      on public.dues_rates     for all    to authenticated using (public.is_super_admin()) with check (public.is_super_admin());
 

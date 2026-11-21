@@ -5,7 +5,7 @@ import { useApiMutation, useCurrentMember, useCurrentSemester, useSemesters } fr
 import type { SemesterDetail, SemesterWeek } from "@/data/types";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/Button";
-import { MoneyField, TextField } from "@/components/Field";
+import { MoneyField, Segmented, TextField } from "@/components/Field";
 import { IconTile, ListRow, ListSection } from "@/components/List";
 import { Sheet } from "@/components/Sheet";
 import { ContentUnavailable, ErrorNotice, InlineError, LoadingBlock } from "@/components/States";
@@ -24,7 +24,7 @@ export function SemesterPage() {
   const [weekId, setWeekId] = useState<string | null>(null);
   const s = semester.data;
   const week = s?.weeks.find((w) => w.id === weekId) ?? null;
-  // Weeks, rates and semesters are the Director's to change; other officers can read them.
+  // Any officer can name a week and switch its dues; rates and dates are the Director's.
   const director = isDirector(me);
 
   return (
@@ -46,12 +46,12 @@ export function SemesterPage() {
           )}
           <ListSection
             header="Weeks"
-            footer="Each week is due from its Monday. Tap a week to make it a no-dues week, for exams or breaks, or to make it a normal week again if the Interim Assessment moves."
+            footer="Each week is due from its Monday. Tap a week to give it a name, like Interim Assessment, and choose whether members pay dues for it."
           >
             {s.weeks.map((w) => (
               <ListRow
                 key={w.id}
-                onClick={s.isClosed || !director ? undefined : () => setWeekId(w.id)}
+                onClick={s.isClosed ? undefined : () => setWeekId(w.id)}
                 leading={
                   <IconTile
                     icon={w.counts ? CalendarCheck : CalendarOff}
@@ -88,7 +88,7 @@ export function SemesterPage() {
           ) : (
             <ListSection
               header="Weekly Rates"
-              footer="Only the Director can change weeks, rates and semesters."
+              footer="Only the Director can change rates and semester dates."
             >
               {s.rates.map((r) => (
                 <ListRow
@@ -267,7 +267,10 @@ function RatesForm({ semester }: { semester: SemesterDetail }) {
   );
 }
 
-/** Confirms switching a week on or off, and says exactly what it does to everyone's dues. */
+/**
+ * Any officer can name a week (say "Interim Assessment") and choose whether dues are charged
+ * for it. The sheet says exactly what the change does to everyone's dues before saving.
+ */
 function WeekSheet({
   week,
   semester,
@@ -278,88 +281,109 @@ function WeekSheet({
   onClose: () => void;
 }) {
   const flash = useFlash();
-  const [note, setNote] = useState("");
+  return (
+    <Sheet open={Boolean(week)} onClose={onClose} title={week ? `Week ${week.weekNo}` : ""}>
+      {week && (
+        <WeekForm
+          key={`${week.id}-${week.counts}-${week.label ?? ""}`}
+          week={week}
+          semester={semester}
+          onDone={(message) => {
+            flash(message, "success");
+            onClose();
+          }}
+        />
+      )}
+    </Sheet>
+  );
+}
+
+type DuesChoice = "dues" | "free";
+
+function WeekForm({
+  week,
+  semester,
+  onDone,
+}: {
+  week: SemesterWeek;
+  semester: SemesterDetail;
+  onDone: (message: string) => void;
+}) {
+  const [label, setLabel] = useState(week.label ?? "");
+  const [choice, setChoice] = useState<DuesChoice>(week.counts ? "dues" : "free");
   const save = useApiMutation(setWeekCounts);
-  const turningOn = week ? !week.counts : false;
+  const counts = choice === "dues";
+  const duesChanged = counts !== week.counts;
+  const labelChanged = label.trim() !== (week.label ?? "");
   const rate = (c: "executive" | "member") =>
     formatCedi(semester.rates.find((r) => r.category === c)?.weeklyAmount ?? 0);
 
-  function close() {
-    setNote("");
-    save.reset();
-    onClose();
-  }
-
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (!week) return;
-    save.mutate([week.id, turningOn, note], {
-      onSuccess: () => {
-        flash(
-          turningOn
-            ? `Week ${week.weekNo} is a normal week again. Dues are charged for it.`
-            : `Week ${week.weekNo} is now a no-dues week.`,
-          "success",
-        );
-        close();
-      },
+    save.mutate([week.id, counts, label.trim()], {
+      onSuccess: () =>
+        onDone(
+          duesChanged
+            ? counts
+              ? `Week ${week.weekNo}: dues are charged again.`
+              : `Week ${week.weekNo} is now a no-dues week.`
+            : `Week ${week.weekNo} saved.`,
+        ),
     });
   }
 
   return (
-    <Sheet open={Boolean(week)} onClose={close} title={week ? `Week ${week.weekNo}` : ""}>
-      {week && (
-        <form onSubmit={submit} className="flex flex-col gap-5">
-          <div className="flex flex-col items-center text-center">
-            <IconTile
-              icon={turningOn ? CalendarCheck : CalendarOff}
-              color={turningOn ? "green" : "gray"}
-              size="lg"
-            />
-            <p className="mt-3 text-title3 font-bold">
-              {turningOn ? "Make It a Normal Week?" : "No Dues This Week?"}
-            </p>
-            <p className="text-subhead text-label-2">
-              {formatDay(week.weekStart)}
-              {week.label && ` · ${week.label}`}
-            </p>
-            <p className="mt-3 max-w-[22rem] text-subhead">
-              {turningOn ? (
-                <>
-                  Dues will be charged for this week: {rate("executive")} for executives and{" "}
-                  {rate("member")} for members, for everyone whose dues had started by then.
-                  {week.weekStart <= semester.today
-                    ? " This week has already begun, so anyone who hasn't paid for it will show as behind straight away."
-                    : ` It falls due on ${formatDay(week.weekStart)}.`}
-                </>
-              ) : (
-                "Nobody will be charged for this week. Anyone who already paid for it keeps the money as credit for later weeks."
-              )}
-            </p>
-          </div>
-          <TextField
-            label={turningOn ? "Note" : "Reason"}
-            optional={turningOn}
-            hint={
-              turningOn
-                ? "Shown on everyone's week-by-week view, e.g. Rehearsals held, assessment postponed."
-                : "Shown on everyone's week-by-week view, e.g. Interim Assessment."
-            }
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-          <InlineError error={save.error} />
-          <Button
-            type="submit"
-            block
-            loading={save.isPending}
-            disabled={!turningOn && note.trim().length < 3}
-          >
-            {turningOn ? "Make It a Normal Week" : "Remove Dues for This Week"}
-          </Button>
-        </form>
+    <form onSubmit={submit} className="flex flex-col gap-5">
+      <div className="flex flex-col items-center text-center">
+        <IconTile
+          icon={counts ? CalendarCheck : CalendarOff}
+          color={counts ? "green" : "gray"}
+          size="lg"
+        />
+        <p className="mt-3 text-subhead text-label-2">{formatDay(week.weekStart)}</p>
+      </div>
+      <TextField
+        label="Event or note"
+        optional
+        maxLength={40}
+        hint="Shown on everyone's week-by-week view, e.g. Interim Assessment, Easter break, Show week."
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
+      />
+      <Segmented<DuesChoice>
+        label="Dues this week"
+        value={choice}
+        onChange={setChoice}
+        options={[
+          { value: "dues", label: "Members pay" },
+          { value: "free", label: "No dues" },
+        ]}
+      />
+      {duesChanged && (
+        <p className="rounded-[0.75rem] bg-cell p-4 text-subhead">
+          {counts ? (
+            <>
+              Dues will be charged for this week: {rate("executive")} for executives and{" "}
+              {rate("member")} for members, for everyone whose dues had started by then.
+              {week.weekStart <= semester.today
+                ? " This week has already begun, so anyone who hasn't paid for it will show as behind straight away."
+                : ` It falls due on ${formatDay(week.weekStart)}.`}
+            </>
+          ) : (
+            "Nobody will be charged for this week. Anyone who already paid for it keeps the money as credit for later weeks."
+          )}
+        </p>
       )}
-    </Sheet>
+      <InlineError error={save.error} />
+      <Button
+        type="submit"
+        block
+        loading={save.isPending}
+        disabled={!duesChanged && !labelChanged}
+      >
+        Save Week
+      </Button>
+    </form>
   );
 }
 

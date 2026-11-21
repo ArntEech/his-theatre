@@ -70,6 +70,9 @@ export default function App() {
     <PersistQueryClientProvider
       client={queryClient}
       persistOptions={{ persister, maxAge: WEEK, buster: usesLiveData ? "live-1" : "demo-3" }}
+      // The saved copy shows instantly; then everything is fetched fresh, so a refresh always
+      // brings the latest changes (a renamed week, a new payment). Offline, the saved copy stays.
+      onSuccess={() => queryClient.invalidateQueries()}
     >
       <FlashProvider>
         <BrowserRouter basename={basename}>

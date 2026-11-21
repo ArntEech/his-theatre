@@ -1079,7 +1079,8 @@ export async function setWeekCounts(
   counts: boolean,
   label?: string,
 ): Promise<SemesterWeek> {
-  const { s } = await asSuperAdmin();
+  // Any officer may name a week and switch its dues; the database allows only those two changes.
+  const { s } = await asAdmin();
   const week = s.weeks.find((w) => w.id === weekId);
   if (!week) throw new ApiError("That week could not be found.", "not_found");
   requireOpenSemester(s, week.semesterId);
