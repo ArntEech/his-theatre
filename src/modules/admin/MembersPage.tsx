@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { KeyRound, UserPlus } from "lucide-react";
+import { Download, KeyRound, UserPlus } from "lucide-react";
 import { useMembers } from "@/data/queries";
 import type { DuesStatus, MemberListItem } from "@/data/types";
 import { PageHeader } from "@/components/PageHeader";
@@ -14,6 +14,44 @@ import { ContentUnavailable, ErrorNotice, LoadingBlock } from "@/components/Stat
 import { formatCedi } from "@/lib/money";
 import { cx } from "@/lib/cx";
 import { memberFlags } from "./components/MemberTags";
+import { downloadText, toCsv } from "@/lib/csv";
+import { localToday } from "@/lib/dates";
+import { STATUS_LABELS } from "@/lib/dues";
+
+const cedis = (pesewas: number) => (pesewas / 100).toFixed(2);
+
+/** Everyone on the roll with this semester's dues, as a spreadsheet file. */
+function downloadMasterList(items: MemberListItem[]) {
+  const people = [...items].sort((a, b) => a.member.memberCode.localeCompare(b.member.memberCode));
+  const rows = people.map(({ member: m, dues, status }) => [
+    m.memberCode,
+    m.fullName,
+    m.portfolio,
+    m.category === "executive" ? "Executive" : "Member",
+    m.drive,
+    m.isActive ? "Active" : `Left${m.leftOn ? ` ${m.leftOn}` : ""}`,
+    dues ? cedis(dues.paid) : "",
+    dues ? cedis(dues.owing) : "",
+    dues ? cedis(dues.credit) : "",
+    status ? STATUS_LABELS[status] : "",
+  ]);
+  const sum = (f: (i: MemberListItem) => number) => cedis(people.reduce((s, i) => s + f(i), 0));
+  const totals = [
+    "", "Total", "", "", "", `${people.length} people`,
+    sum((i) => i.dues?.paid ?? 0), sum((i) => i.dues?.owing ?? 0), sum((i) => i.dues?.credit ?? 0), "",
+  ];
+  downloadText(
+    `his-theatre-master-list-${localToday()}.csv`,
+    toCsv([
+      [
+        "Member ID", "Full name", "Portfolio", "Category", "Drive", "Status",
+        "Paid this semester (GH₵)", "Owing (GH₵)", "Paid ahead (GH₵)", "Dues",
+      ],
+      ...rows,
+      totals,
+    ]),
+  );
+}
 
 type StatusFilter = "all" | DuesStatus;
 
@@ -72,16 +110,22 @@ export function MembersPage() {
         }
       />
 
-      {notSignedIn > 0 && (
-        <ListSection>
+      <ListSection>
+        {notSignedIn > 0 && (
           <ListRow
             to="/admin/members/setup-codes"
             leading={<IconTile icon={KeyRound} color="orange" />}
             title="Setup Codes"
             subtitle={`${notSignedIn} ${notSignedIn === 1 ? "person hasn't" : "people haven't"} signed in yet`}
           />
-        </ListSection>
-      )}
+        )}
+        <ListRow
+          leading={<IconTile icon={Download} color="blue" />}
+          title="Download Master List"
+          subtitle="Everyone's ID, name, portfolio and dues, for Excel or Sheets"
+          onClick={all.data ? () => downloadMasterList(all.data) : undefined}
+        />
+      </ListSection>
 
       <div className="mb-6 flex flex-col gap-3">
         <SearchField

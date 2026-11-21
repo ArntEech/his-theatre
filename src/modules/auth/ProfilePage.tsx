@@ -6,7 +6,7 @@ import { isWeakPin, WEAK_PIN_MESSAGE } from "@/lib/pin";
 import { useApiMutation, useCurrentMember, useSessionMutation } from "@/data/queries";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/Button";
-import { Segmented, TextField } from "@/components/Field";
+import { Segmented, SelectField, TextField } from "@/components/Field";
 import { IconTile, ListItem, ListRow, ListSection, ValueRow } from "@/components/List";
 import { Sheet } from "@/components/Sheet";
 import { Avatar } from "@/components/Avatar";
@@ -16,6 +16,7 @@ import { useFlash } from "@/components/Flash";
 import { roleLabel } from "@/lib/roles";
 import { useTheme, type ThemePreference } from "@/lib/theme";
 import { useTextSize, type TextSize } from "@/lib/textSize";
+import { FONTS, useFont, type FontChoice } from "@/lib/font";
 import { useInstallPrompt } from "./useInstallPrompt";
 
 export function ProfilePage() {
@@ -26,6 +27,7 @@ export function ProfilePage() {
   const install = useInstallPrompt();
   const theme = useTheme();
   const text = useTextSize();
+  const font = useFont();
 
   if (!me) return null;
 
@@ -59,8 +61,8 @@ export function ProfilePage() {
         header="Appearance"
         footer={
           theme.preference === "system"
-            ? `Following your phone, which is set to ${theme.resolved} right now. Saved on this phone only.`
-            : `Always ${theme.preference}, whatever your phone is set to. Saved on this phone only.`
+            ? `Following your phone, which is set to ${theme.resolved} right now. Text size: M is the standard. Saved on this phone only.`
+            : `Always ${theme.preference}, whatever your phone is set to. Text size: M is the standard. Saved on this phone only.`
         }
       >
         <ListItem>
@@ -81,11 +83,26 @@ export function ProfilePage() {
             value={text.size}
             onChange={text.setSize}
             options={[
-              { value: "standard", label: "Default" },
-              { value: "large", label: "Large" },
-              { value: "larger", label: "Larger" },
+              { value: "smaller", label: "XS" },
+              { value: "small", label: "S" },
+              { value: "standard", label: "M" },
+              { value: "large", label: "L" },
+              { value: "larger", label: "XL" },
             ]}
           />
+        </ListItem>
+        <ListItem>
+          <SelectField
+            label="Font"
+            value={font.font}
+            onChange={(e) => font.setFont(e.target.value as FontChoice)}
+          >
+            {(Object.keys(FONTS) as FontChoice[]).map((key) => (
+              <option key={key} value={key}>
+                {FONTS[key].label}
+              </option>
+            ))}
+          </SelectField>
         </ListItem>
       </ListSection>
 

@@ -4,7 +4,9 @@ import { useSyncExternalStore } from "react";
  * In-app text size. Everything is sized in rem, so scaling the root font size scales the
  * whole app. A preference for this device only, kept in localStorage.
  */
-export type TextSize = "standard" | "large" | "larger";
+export type TextSize = "smaller" | "small" | "standard" | "large" | "larger";
+
+const SIZES: TextSize[] = ["smaller", "small", "standard", "large", "larger"];
 
 const STORAGE_KEY = "his-theatre.text-size";
 const listeners = new Set<() => void>();
@@ -12,7 +14,7 @@ const listeners = new Set<() => void>();
 function read(): TextSize {
   try {
     const value = localStorage.getItem(STORAGE_KEY);
-    return value === "large" || value === "larger" ? value : "standard";
+    return SIZES.includes(value as TextSize) ? (value as TextSize) : "standard";
   } catch {
     return "standard";
   }
