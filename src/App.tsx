@@ -13,6 +13,7 @@ import { OfficerSignInPage } from "@/modules/auth/OfficerSignInPage";
 import { ProfilePage } from "@/modules/auth/ProfilePage";
 import { HomePage } from "@/modules/dues/HomePage";
 import { DuesPage } from "@/modules/dues/DuesPage";
+import { AnnouncementsPage, AttendancePage } from "@/modules/soon/ComingSoonPage";
 import { AdminHomePage } from "@/modules/admin/AdminHomePage";
 import { TodayPage } from "@/modules/admin/TodayPage";
 import { MembersPage } from "@/modules/admin/MembersPage";
@@ -99,6 +100,8 @@ export default function App() {
             >
               <Route index element={<HomePage />} />
               <Route path="dues" element={<DuesPage />} />
+              <Route path="attendance" element={<AttendancePage />} />
+              <Route path="announcements" element={<AnnouncementsPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="admin">
                 <Route

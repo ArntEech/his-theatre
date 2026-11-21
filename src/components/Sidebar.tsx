@@ -50,7 +50,7 @@ export function Sidebar({ member }: { member: Member | null | undefined }) {
       </div>
       <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 pb-4">
         <ul className="space-y-0.5">
-          {mainNav(admin).map(({ to, label, glyph: Glyph, end }) => (
+          {mainNav(admin).map(({ to, label, glyph: Glyph, end, soon }) => (
             <li key={to}>
               <NavLink
                 to={to}
@@ -64,6 +64,11 @@ export function Sidebar({ member }: { member: Member | null | undefined }) {
                       className={cx("size-[1.4rem]", !isActive && "text-tint-text")}
                     />
                     {label}
+                    {soon && (
+                      <span className="ml-auto rounded-full bg-fill px-2 py-0.5 text-caption2 font-semibold text-label-2">
+                        Soon
+                      </span>
+                    )}
                   </>
                 )}
               </NavLink>
