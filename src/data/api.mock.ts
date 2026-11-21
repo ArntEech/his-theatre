@@ -1248,7 +1248,7 @@ export async function setWeekCounts(
   label?: string,
 ): Promise<SemesterWeek> {
   await delay();
-  const actor = requireSuperAdmin();
+  const actor = requireAdmin();
   const week = db.weeks.find((w) => w.id === weekId);
   if (!week) throw new ApiError("That week could not be found.", "not_found");
   const semester = requireOpenSemester(week.semesterId);
