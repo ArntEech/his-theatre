@@ -201,6 +201,36 @@
   }
 
   /* In-app text size (Profile → Appearance). Everything is in rem, so the whole app scales. */
+  /* In-app font (Profile → Appearance). The phone's font stays as the fallback while loading. */
+  html[data-font="nunito"] {
+    --font-sans: "Nunito", -apple-system, system-ui, Roboto, sans-serif;
+    --font-rounded: "Nunito", ui-rounded, -apple-system, system-ui, Roboto, sans-serif;
+  }
+  html[data-font="poppins"] {
+    --font-sans: "Poppins", -apple-system, system-ui, Roboto, sans-serif;
+    --font-rounded: "Poppins", ui-rounded, -apple-system, system-ui, Roboto, sans-serif;
+  }
+  html[data-font="lato"] {
+    --font-sans: "Lato", -apple-system, system-ui, Roboto, sans-serif;
+    --font-rounded: "Lato", ui-rounded, -apple-system, system-ui, Roboto, sans-serif;
+  }
+  html[data-font="lora"] {
+    --font-sans: "Lora", -apple-system, system-ui, Roboto, sans-serif;
+    --font-rounded: "Lora", ui-rounded, -apple-system, system-ui, Roboto, sans-serif;
+  }
+  html[data-font="atkinson"] {
+    --font-sans: "Atkinson Hyperlegible", -apple-system, system-ui, Roboto, sans-serif;
+    --font-rounded: "Atkinson Hyperlegible", ui-rounded, -apple-system, system-ui, Roboto, sans-serif;
+  }
+
+  html[data-text-size="smaller"] {
+    font-size: 82%;
+  }
+
+  html[data-text-size="small"] {
+    font-size: 91%;
+  }
+
   html[data-text-size="large"] {
     font-size: 115%;
   }

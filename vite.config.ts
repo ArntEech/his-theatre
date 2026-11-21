@@ -37,6 +37,23 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         // Never cache calls to the database; the app keeps its own offline copy of what you last saw.
         navigateFallbackDenylist: [/^\/api\//],
+        // Fonts chosen in Profile → Appearance: keep a copy so they still show offline.
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.origin === "https://fonts.googleapis.com",
+            handler: "StaleWhileRevalidate",
+            options: { cacheName: "google-fonts-css" },
+          },
+          {
+            urlPattern: ({ url }) => url.origin === "https://fonts.gstatic.com",
+            handler: "CacheFirst",
+            options: {
+              cacheName: "google-fonts-files",
+              expiration: { maxEntries: 40, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],

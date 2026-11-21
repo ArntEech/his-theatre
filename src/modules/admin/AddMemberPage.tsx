@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
-import { addMember } from "@/data/api";
+import { addMember, issueSetupCode } from "@/data/api";
 import { DRIVES } from "@/lib/drives";
 import { useApiMutation, useCurrentSemester, useMembers } from "@/data/queries";
-import type { MemberCategory } from "@/data/types";
+import type { Member, MemberCategory, SetupCodeResult } from "@/data/types";
+import { WhatsAppButton } from "@/components/WhatsAppButton";
+import { setupCodeMessage } from "@/lib/whatsapp";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/Button";
 import { Segmented, SelectField, TextField } from "@/components/Field";
 import { InlineError } from "@/components/States";
 import { useFlash } from "@/components/Flash";
-import { formatDay } from "@/lib/dates";
+import { formatDateTime, formatDay } from "@/lib/dates";
 import { firstName } from "@/lib/roles";
 
 const NEW_DRIVE = "__new__";
@@ -34,6 +36,8 @@ export function AddMemberPage() {
   const [portfolio, setPortfolio] = useState("");
   const [startWeekNo, setStartWeekNo] = useState(1);
   const add = useApiMutation(addMember);
+  const code = useApiMutation(issueSetupCode);
+  const [added, setAdded] = useState<(SetupCodeResult & { member: Member }) | null>(null);
 
   useEffect(() => {
     if (!drive && drives.length) setDrive(drives[0]);
@@ -48,13 +52,51 @@ export function AddMemberPage() {
     e.preventDefault();
     add.mutate([{ fullName, phone, drive: driveValue, category, portfolio, startWeekNo }], {
       onSuccess: (m) => {
-        flash(
-          `${m.memberCode} added. Issue a setup code so ${firstName(m.fullName)} can sign in.`,
-          "success",
-        );
-        navigate(`/admin/members/${m.id}`, { replace: true });
+        // Every new member gets their setup code straight away, ready to send.
+        code.mutate([m.id], {
+          onSuccess: (result) => setAdded({ member: m, ...result }),
+          onError: () => {
+            flash(
+              `${m.memberCode} added. Open their page to issue a setup code.`,
+              "success",
+            );
+            navigate(`/admin/members/${m.id}`, { replace: true });
+          },
+        });
       },
     });
+  }
+
+  if (added) {
+    const { member: m, setupCode, expiresAt } = added;
+    return (
+      <>
+        <PageHeader back={{ to: "/admin/members", label: "Members" }} title="Member Added" />
+        <div className="flex flex-col items-center gap-1 text-center">
+          <p className="text-title3 font-bold">{m.fullName}</p>
+          <p className="text-subhead text-label-2">Member ID {m.memberCode}</p>
+          <p className="mt-4 text-footnote text-label-2">Setup code</p>
+          <p className="tnum font-mono text-[2.5rem] font-bold tracking-[0.3em] select-all">
+            {setupCode}
+          </p>
+          <p className="max-w-[22rem] text-footnote text-label-2">
+            Shown only now. Works once, until {formatDateTime(expiresAt)}. {firstName(m.fullName)}{" "}
+            uses it with their Member ID to choose a 4-digit PIN.
+          </p>
+        </div>
+        <div className="mt-6 flex flex-col gap-3">
+          <WhatsAppButton
+            phone={m.phone}
+            message={setupCodeMessage({ ...m, setupCode, expiresAt }, location.origin)}
+          >
+            Send ID and Code on WhatsApp
+          </WhatsAppButton>
+          <Button block onClick={() => navigate(`/admin/members/${m.id}`, { replace: true })}>
+            Done
+          </Button>
+        </div>
+      </>
+    );
   }
 
   return (
@@ -129,7 +171,7 @@ export function AddMemberPage() {
         <Button
           type="submit"
           block
-          loading={add.isPending}
+          loading={add.isPending || code.isPending}
           disabled={fullName.trim().length < 3 || !driveValue}
           className="mt-2"
         >
