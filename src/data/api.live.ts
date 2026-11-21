@@ -52,6 +52,7 @@ import {
   type MemberDetail,
   type MemberFilters,
   type MemberListItem,
+  type MemberProfile,
   type MemberSemester,
   type MemberUpdate,
   type MyDues,
@@ -169,7 +170,47 @@ const toMember = (r: Row): Member => ({
   leftOn: r.left_on ?? null,
   isActivated: r.is_activated ?? true,
   isLocked: r.is_locked ?? false,
+  profile: {
+    birthDay: r.birth_day ?? null,
+    birthMonth: r.birth_month ?? null,
+    level: r.level ?? null,
+    joinedAs: r.joined_as ?? null,
+    course: r.course ?? "",
+    hall: r.hall ?? "",
+    driveInterests: r.drive_interests ?? "",
+    experience: r.experience ?? "",
+    experienceNotes: r.experience_notes ?? "",
+  },
 });
+
+/** Profile changes → database columns, with lengths checked first. */
+function profileColumns(p: Partial<MemberProfile>): Row {
+  const out: Row = {};
+  const text = (v: string, label: string, max: number) => {
+    const t = v.trim();
+    if (t.length > max) throw new ApiError(`${label} is too long (${max} letters at most).`, "invalid");
+    return t;
+  };
+  if (p.birthDay !== undefined || p.birthMonth !== undefined) {
+    const day = p.birthDay ?? null;
+    const month = p.birthMonth ?? null;
+    if ((day === null) !== (month === null)) throw new ApiError("Give both the day and month of the birthday.", "invalid");
+    out.birth_day = day;
+    out.birth_month = month;
+  }
+  if (p.level !== undefined) {
+    if (p.level !== null && (!Number.isInteger(p.level) || p.level < 100 || p.level > 900))
+      throw new ApiError("Level should be like 100, 200, 300 or 400.", "invalid");
+    out.level = p.level;
+  }
+  if (p.joinedAs !== undefined) out.joined_as = p.joinedAs;
+  if (p.course !== undefined) out.course = text(p.course, "Course", 120);
+  if (p.hall !== undefined) out.hall = text(p.hall, "Hall of residence", 120);
+  if (p.driveInterests !== undefined) out.drive_interests = text(p.driveInterests, "Drive interests", 200);
+  if (p.experience !== undefined) out.experience = text(p.experience, "Experience", 60);
+  if (p.experienceNotes !== undefined) out.experience_notes = text(p.experienceNotes, "Experience details", 500);
+  return out;
+}
 const toSemester = (r: Row): Semester => ({
   id: r.id,
   name: r.name,
@@ -665,6 +706,7 @@ export async function updateMember(id: string, patch: MemberUpdate): Promise<Mem
   }
   if (patch.drive !== undefined) update.drive = requireText(patch.drive, "Drive", 1, 60);
   if (patch.category !== undefined) update.category = patch.category;
+  if (patch.profile) Object.assign(update, profileColumns(patch.profile));
   const row = await run<Row>(sb().from("members").update(update).eq("id", id).select().single());
   changed();
   // The category for the current semester follows, so the right weekly rate applies.
