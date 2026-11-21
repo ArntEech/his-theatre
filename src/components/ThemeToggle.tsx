@@ -2,14 +2,14 @@ import { Moon, Sun } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import { IconButton } from "./Button";
 
-/** One-tap switch between light and dark, for navigation bars. */
+/** One-tap switch between Day and Night, for the sign-in screens. More looks are in Profile. */
 export function ThemeToggle({ className }: { className?: string }) {
   const { resolved, setPreference } = useTheme();
-  const toDark = resolved === "light";
+  const toDark = resolved === "day";
   return (
     <IconButton
       label={toDark ? "Switch to dark mode" : "Switch to light mode"}
-      onClick={() => setPreference(toDark ? "dark" : "light")}
+      onClick={() => setPreference(toDark ? "night" : "day")}
       className={className}
     >
       {toDark ? (

@@ -1,13 +1,16 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * In-app font. "system" is the phone's own font (San Francisco on iPhone, Roboto on Android).
- * The others load from Google Fonts the first time they are chosen; the app keeps a copy,
- * so they still work offline afterwards. A preference for this device only.
+ * In-app font. The default, "apple", is Apple's San Francisco (SF Pro), the font in iPhone
+ * apps. Apple only allows SF Pro on its own devices, so iPhones and Macs use their built-in
+ * copy and other phones get Inter, the closest free match. "system" is the phone's own font
+ * (Roboto on Android). The others load from Google Fonts the first time they are chosen; the
+ * app keeps a copy, so they still work offline afterwards. A preference for this device only.
  * index.html applies the saved choice before the first paint, using the same list.
  */
 export const FONTS = {
-  system: { label: "Phone default", family: "", query: "" },
+  apple: { label: "SF Pro (Apple style)", family: "Inter", query: "Inter:wght@400;500;600;700" },
+  system: { label: "Phone's own font", family: "", query: "" },
   nunito: { label: "Nunito (rounded)", family: "Nunito", query: "Nunito:wght@400;600;700;800" },
   poppins: { label: "Poppins (modern)", family: "Poppins", query: "Poppins:wght@400;500;600;700" },
   lato: { label: "Lato (clean)", family: "Lato", query: "Lato:wght@400;700;900" },
@@ -27,13 +30,13 @@ const listeners = new Set<() => void>();
 function read(): FontChoice {
   try {
     const value = localStorage.getItem(STORAGE_KEY);
-    return value && value in FONTS ? (value as FontChoice) : "system";
+    return value && value in FONTS ? (value as FontChoice) : "apple";
   } catch {
-    return "system";
+    return "apple";
   }
 }
 
-let current: FontChoice = typeof window !== "undefined" ? read() : "system";
+let current: FontChoice = typeof window !== "undefined" ? read() : "apple";
 
 function apply() {
   const root = document.documentElement;
@@ -59,7 +62,7 @@ function apply() {
 export function setFont(next: FontChoice) {
   current = next;
   try {
-    if (next === "system") localStorage.removeItem(STORAGE_KEY);
+    if (next === "apple") localStorage.removeItem(STORAGE_KEY);
     else localStorage.setItem(STORAGE_KEY, next);
   } catch {
     // Private browsing: the choice still applies for this visit.
