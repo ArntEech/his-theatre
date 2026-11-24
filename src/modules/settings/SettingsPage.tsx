@@ -14,6 +14,7 @@ import {
   MessageCircleQuestion,
   MonitorSmartphone,
   Palette,
+  RefreshCw,
   ShieldCheck,
   UserRound,
   type LucideIcon,
@@ -29,6 +30,7 @@ import { InstallSheet } from "@/components/InstallApp";
 import { useInstallPrompt } from "@/modules/auth/useInstallPrompt";
 import { roleLabel } from "@/lib/roles";
 import { APP_VERSION } from "@/lib/version";
+import { checkForUpdate, restartNow, useAppUpdate, type UpdateStatus } from "@/lib/appUpdate";
 import { ChangePinSheet } from "./ChangePinSheet";
 
 interface Item {
@@ -53,6 +55,7 @@ export function SettingsPage() {
   const [query, setQuery] = useState("");
   const [pinOpen, setPinOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
+  const update = useAppUpdate();
 
   async function startInstall() {
     if (install.canPrompt && (await install.install())) return;
@@ -67,6 +70,16 @@ export function SettingsPage() {
     { key: "pin", title: "Change PIN", icon: KeyRound, color: "gray", section: "security", words: "password pin security", onClick: () => setPinOpen(true) },
     { key: "devices", title: "Devices", subtitle: "Sign out of your other phones", icon: MonitorSmartphone, color: "green", section: "security", words: "phones sessions sign out lost stolen", to: "/settings/devices" },
     { key: "data", title: "Data on This Phone", icon: HardDrive, color: "blue", section: "security", words: "storage offline cache clear saved", to: "/settings/data" },
+    {
+      key: "update",
+      title: update.status === "updating" ? "Updating…" : "Check for Updates",
+      subtitle: updateText(update.status, update.lastChecked),
+      icon: RefreshCw,
+      color: "green",
+      section: "app",
+      words: "update version new latest refresh old",
+      onClick: () => (update.status === "updating" ? restartNow() : void checkForUpdate()),
+    },
     ...(install.standalone
       ? []
       : [{ key: "install", title: "Install the App", subtitle: "Put His Theatre on your home screen", icon: Download, color: "gold" as TileColor, section: "app" as const, words: "home screen add download iphone android", onClick: startInstall }]),
@@ -145,7 +158,9 @@ export function SettingsPage() {
 
           <ListSection>{section("main")}</ListSection>
           <ListSection header="Privacy and Security">{section("security")}</ListSection>
-          {!install.standalone && <ListSection>{section("app")}</ListSection>}
+          <ListSection footer="The app also checks by itself when you open it and every few minutes, and switches to a new version straight away.">
+            {section("app")}
+          </ListSection>
           <ListSection header="Help">{section("help")}</ListSection>
 
           <footer className="mt-2 mb-6 flex flex-col items-center gap-1 text-center">
@@ -161,6 +176,28 @@ export function SettingsPage() {
       <InstallSheet open={installOpen} onClose={() => setInstallOpen(false)} platform={install.platform} />
     </>
   );
+}
+
+function updateText(status: UpdateStatus, lastChecked: number | null): string {
+  const when = lastChecked
+    ? Date.now() - lastChecked < 90_000
+      ? "just now"
+      : `${Math.round((Date.now() - lastChecked) / 60_000)} min ago`
+    : null;
+  switch (status) {
+    case "checking":
+      return "Checking…";
+    case "updating":
+      return "Getting the new version. The app restarts by itself, or tap to restart now.";
+    case "offline":
+      return "You're offline. It checks again when you're back online.";
+    case "error":
+      return "Couldn't check just now. Tap to try again.";
+    case "current":
+      return `Version ${APP_VERSION} · up to date${when ? ` (checked ${when})` : ""}`;
+    default:
+      return `Version ${APP_VERSION}`;
+  }
 }
 
 export function SoonBadge() {
