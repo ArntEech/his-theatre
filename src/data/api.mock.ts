@@ -499,6 +499,28 @@ export async function getCurrentMember(): Promise<Member | null> {
   return clone(member);
 }
 
+/** MOCK: pictures live in the demo data on this phone. Officers see everyone's. */
+export async function getMemberPhotos(): Promise<Record<string, string>> {
+  await delay();
+  const me = requireMember();
+  const photos = db.photos ?? {};
+  if (isAdmin(me) && hasOfficerPin(me)) return { ...photos };
+  return photos[me.id] ? { [me.id]: photos[me.id] } : {};
+}
+
+export async function setMyPhoto(image: string | null): Promise<void> {
+  await delay();
+  const me = requireMember();
+  db.photos ??= {};
+  if (image === null) delete db.photos[me.id];
+  else {
+    if (!/^data:image\/(webp|jpeg|png);base64,/.test(image) || image.length > 150_000)
+      throw new ApiError("That picture couldn't be used. Try another one.", "invalid");
+    db.photos[me.id] = image;
+  }
+  persist();
+}
+
 /** MOCK: there are no other phones in the demo. */
 export async function signOutOtherDevices(): Promise<void> {
   await delay();

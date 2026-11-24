@@ -17,6 +17,8 @@ export const {
   subscribeToChanges,
   signOut,
   signOutOtherDevices,
+  getMemberPhotos,
+  setMyPhoto,
   getCurrentMember,
   changePin,
   getMyDues,

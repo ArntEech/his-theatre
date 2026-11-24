@@ -22,13 +22,13 @@ import { useCurrentMember } from "@/data/queries";
 import { PageHeader } from "@/components/PageHeader";
 import { SearchField } from "@/components/Field";
 import { IconTile, ListRow, ListSection, type TileColor } from "@/components/List";
-import { Avatar } from "@/components/Avatar";
+import { MemberAvatar } from "@/components/Avatar";
 import { IconButton } from "@/components/Button";
 import { Logo } from "@/components/Logo";
 import { InstallSheet } from "@/components/InstallApp";
 import { useInstallPrompt } from "@/modules/auth/useInstallPrompt";
 import { roleLabel } from "@/lib/roles";
-import { APP_UPDATED, APP_VERSION } from "@/lib/version";
+import { APP_VERSION } from "@/lib/version";
 import { ChangePinSheet } from "./ChangePinSheet";
 
 interface Item {
@@ -120,7 +120,7 @@ export function SettingsPage() {
                   to="/profile"
                   className="flex items-center gap-3.5 px-4 py-3.5 transition-colors active:bg-highlight"
                 >
-                  <Avatar name={me.fullName} size="md" />
+                  <MemberAvatar memberId={me.id} name={me.fullName} size="lg" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-headline font-semibold">{me.fullName}</span>
                     <span className="block truncate text-subhead text-label-2">
@@ -151,9 +151,8 @@ export function SettingsPage() {
           <footer className="mt-2 mb-6 flex flex-col items-center gap-1 text-center">
             <Logo className="w-9 opacity-80" />
             <p className="text-footnote font-semibold text-label-2">His Theatre {APP_VERSION}</p>
-            <p className="text-caption text-label-3">
-              Hearts In Service Theatre Ministry · Updated {APP_UPDATED}
-            </p>
+            <p className="text-caption text-label-3">Hearts In Service Theatre Ministry</p>
+            <p className="text-caption font-medium text-label-3 italic">Commissioned for Missions</p>
           </footer>
         </>
       )}

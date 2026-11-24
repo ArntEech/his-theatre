@@ -519,6 +519,31 @@ export async function changePin(currentPin: string, newPin: string): Promise<voi
   changed();
 }
 
+/** Profile pictures this person may see: their own, or everyone's for officers (the database decides). */
+export async function getMemberPhotos(): Promise<Record<string, string>> {
+  const { data, error } = await sb().from("member_photos").select("member_id, image");
+  if (error) throw toApiError(error);
+  return Object.fromEntries((data ?? []).map((r: { member_id: string; image: string }) => [r.member_id, r.image]));
+}
+
+/** Sets or removes your own profile picture (a small square image, as a data URL). */
+export async function setMyPhoto(image: string | null): Promise<void> {
+  const me = await getCurrentMember();
+  if (!me) throw new ApiError("Please sign in again.", "auth");
+  if (image === null) {
+    const { error } = await sb().from("member_photos").delete().eq("member_id", me.id);
+    if (error) throw toApiError(error);
+  } else {
+    if (!/^data:image\/(webp|jpeg|png);base64,/.test(image) || image.length > 150_000)
+      throw new ApiError("That picture couldn't be used. Try another one.", "invalid");
+    const { error } = await sb()
+      .from("member_photos")
+      .upsert({ member_id: me.id, image, updated_at: new Date().toISOString() });
+    if (error) throw toApiError(error);
+  }
+  changed();
+}
+
 /** Signs this account out on every other phone and computer; this one stays signed in. */
 export async function signOutOtherDevices(): Promise<void> {
   const { error } = await sb().auth.signOut({ scope: "others" });

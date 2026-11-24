@@ -3,28 +3,24 @@ import { Link } from "react-router";
 import { ChevronLeft } from "lucide-react";
 import { useCurrentMember } from "@/data/queries";
 import { cx } from "@/lib/cx";
-import { Logo } from "./Logo";
-import { Avatar } from "./Avatar";
+import { MemberAvatar } from "./Avatar";
 import { ThemeToggle } from "./ThemeToggle";
 
 interface PageHeaderProps {
   title: ReactNode;
-  /** A small line at the top of the page, e.g. the semester's name. */
+  /** A small line at the top of the page, e.g. the semester's name. On Home, the date. */
   overline?: ReactNode;
   back?: { to: string; label: string };
   /** Extra buttons for this page, shown before the Day/Night toggle and your picture. */
   action?: ReactNode;
-  /**
-   * Home only: the bar shows no title, and `title` (the greeting) is the large heading in the
-   * page. Once it scrolls away, the bar shows it small.
-   */
+  /** Home only: the bar shows no title; `title` (the greeting) is the heading in the page. */
   large?: boolean;
 }
 
 /**
- * Navigation bar in the style of Telegram: a small centred title, the HIS crest (or Back) on
- * the left, and the Day/Night toggle plus your picture on the right. Both sides are the same
- * width, so the title is always in the middle.
+ * Navigation bar in the style of Telegram: a small centred title, Back on the left when there
+ * is somewhere to go back to, and the Day/Night toggle plus your picture on the right. Both
+ * sides are the same width, so the title is always in the middle.
  */
 export function PageHeader({ title, overline, back, action, large }: PageHeaderProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -35,14 +31,14 @@ export function PageHeader({ title, overline, back, action, large }: PageHeaderP
     const el = sentinelRef.current;
     if (!el) return;
     const observer = new IntersectionObserver(([entry]) => setScrolled(!entry.isIntersecting), {
-      rootMargin: "-52px 0px 0px 0px",
+      rootMargin: "-40px 0px 0px 0px",
       threshold: 0,
     });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
-  const showTitle = !large || scrolled;
+  const showTitle = !large;
 
   return (
     <>
@@ -63,15 +59,7 @@ export function PageHeader({ title, overline, back, action, large }: PageHeaderP
                 <ChevronLeft aria-hidden className="size-7 shrink-0" strokeWidth={2.3} />
                 <span className="truncate max-[380px]:sr-only">{back.label}</span>
               </Link>
-            ) : (
-              <Link
-                to="/"
-                aria-label="Home"
-                className="flex min-h-11 items-center pl-1 transition-opacity active:opacity-60 md:hidden"
-              >
-                <Logo className="w-7" />
-              </Link>
-            )}
+            ) : null}
           </div>
           <div
             aria-hidden={!showTitle}
@@ -91,7 +79,7 @@ export function PageHeader({ title, overline, back, action, large }: PageHeaderP
                 aria-label={`Your account: ${me.fullName}`}
                 className="ml-0.5 inline-flex size-11 shrink-0 items-center justify-center rounded-full transition-opacity active:opacity-60 md:hidden"
               >
-                <Avatar name={me.fullName} size="sm" />
+                <MemberAvatar memberId={me.id} name={me.fullName} size="sm" />
               </Link>
             )}
           </div>
@@ -100,12 +88,8 @@ export function PageHeader({ title, overline, back, action, large }: PageHeaderP
       <div ref={sentinelRef} aria-hidden className="h-px" />
       {large ? (
         <header className="mb-5">
-          {overline && (
-            <p className="text-footnote font-semibold tracking-wide text-label-2 uppercase">
-              {overline}
-            </p>
-          )}
-          <h1 className="text-large-title font-bold tracking-tight">{title}</h1>
+          <h1 className="text-title1 font-bold tracking-tight">{title}</h1>
+          {overline && <p className="mt-0.5 text-subhead text-label-2">{overline}</p>}
         </header>
       ) : (
         <>

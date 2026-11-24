@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { ButtonLink } from "@/components/Button";
 import { SearchField, Segmented, Switch } from "@/components/Field";
 import { IconTile, ListItem, ListRow, ListSection } from "@/components/List";
-import { Avatar } from "@/components/Avatar";
+import { MemberAvatar } from "@/components/Avatar";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ContentUnavailable, ErrorNotice, LoadingBlock } from "@/components/States";
@@ -202,7 +202,7 @@ export function MembersPage() {
                   <ListRow
                     key={member.id}
                     to={`/admin/members/${member.id}`}
-                    leading={<Avatar name={member.fullName} />}
+                    leading={<MemberAvatar memberId={member.id} name={member.fullName} />}
                     title={member.fullName}
                     subtitle={
                       <span className="tnum">
