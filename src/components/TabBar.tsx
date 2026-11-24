@@ -49,9 +49,9 @@ export function phoneTabs(showAdmin: boolean): NavItem[] {
 }
 
 /**
- * Floating tab bar for phones, in the style of Telegram and Pinterest: a rounded glass bar
- * that floats just above the bottom of the screen, close to the edge. The selected tab opens into a pill with
- * its name; the others show only their icon. Tablets and laptops use the sidebar instead.
+ * Floating tab bar for phones, in the style of Telegram: a rounded glass bar just above the
+ * bottom of the screen, each tab an icon with its name in small letters underneath. The
+ * selected tab is tinted gold. Tablets and laptops use the sidebar instead.
  */
 export function TabBar({ showAdmin }: { showAdmin: boolean }) {
   return (
@@ -59,38 +59,24 @@ export function TabBar({ showAdmin }: { showAdmin: boolean }) {
       aria-label="Main"
       className="no-print pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(0.25rem+env(safe-area-inset-bottom)*0.6)] pl-[max(0.75rem,env(safe-area-inset-left))] md:hidden"
     >
-      <ul className="tabbar material pointer-events-auto mx-auto flex max-w-[28rem] items-center justify-between gap-0.5 rounded-full p-1.5 shadow-[0_10px_30px_-10px_rgb(0_0_0/0.35),0_2px_8px_-2px_rgb(0_0_0/0.12)] ring-[0.5px] ring-separator">
+      <ul className="tabbar material pointer-events-auto mx-auto flex max-w-[28rem] items-stretch gap-0.5 rounded-full p-1 shadow-[0_10px_30px_-10px_rgb(0_0_0/0.35),0_2px_8px_-2px_rgb(0_0_0/0.12)] ring-[0.5px] ring-separator">
         {phoneTabs(showAdmin).map(({ to, label, short, glyph: Glyph, end }) => (
-          <li key={to} className="flex min-w-0 flex-[1_1_0] justify-center has-[[aria-current=page]]:flex-[1.9_1_0]">
+          <li key={to} className="flex min-w-0 flex-1">
             <NavLink
               to={to}
               end={end}
               aria-label={label}
               className={({ isActive }) =>
                 cx(
-                  "group flex h-12 min-w-11 items-center justify-center gap-1.5 rounded-full px-2.5 transition-[background-color,color,padding,transform] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-90",
-                  isActive
-                    ? "w-full bg-tint/20 text-tint-text"
-                    : "text-label-2 hover:text-label",
+                  "flex w-full flex-col items-center justify-center gap-0.5 rounded-full py-1.5 transition-[background-color,color,transform] duration-200 active:scale-95",
+                  isActive ? "bg-tint/18 text-tint-text" : "text-label-2 hover:text-label",
                 )
               }
             >
               {({ isActive }) => (
                 <>
-                  <Glyph
-                    filled={isActive}
-                    className={cx(
-                      "size-[1.5rem] shrink-0 transition-transform duration-300",
-                      isActive && "scale-105",
-                    )}
-                  />
-                  <span
-                    aria-hidden
-                    className={cx(
-                      "overflow-hidden text-subhead font-semibold whitespace-nowrap transition-[max-width,opacity] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-                      isActive ? "max-w-[5.5rem] opacity-100" : "max-w-0 opacity-0",
-                    )}
-                  >
+                  <Glyph filled={isActive} className="size-[1.45rem] shrink-0" />
+                  <span aria-hidden className="text-[0.6875rem] leading-tight font-semibold">
                     {short ?? label}
                   </span>
                 </>

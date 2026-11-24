@@ -16,7 +16,7 @@ import type { Member } from "@/data/types";
 import { isAdmin, roleLabel } from "@/lib/roles";
 import { cx } from "@/lib/cx";
 import { Logo } from "./Logo";
-import { Avatar } from "./Avatar";
+import { MemberAvatar } from "./Avatar";
 import { mainNav } from "./TabBar";
 
 const ADMIN_LINKS: { to: string; label: string; icon: LucideIcon }[] = [
@@ -114,7 +114,7 @@ export function Sidebar({ member }: { member: Member | null | undefined }) {
             )
           }
         >
-          <Avatar name={member.fullName} size="sm" />
+          <MemberAvatar memberId={member.id} name={member.fullName} size="sm" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-subhead font-semibold">{member.fullName}</span>
             <span className="block truncate text-footnote text-label-2">{roleLabel(member)}</span>

@@ -16,7 +16,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { ButtonLink } from "@/components/Button";
 import { Stat, SummaryCard } from "@/components/Card";
 import { IconTile, ListRow, ListSection } from "@/components/List";
-import { Avatar } from "@/components/Avatar";
+import { MemberAvatar } from "@/components/Avatar";
 import { BigMoney, Money } from "@/components/Money";
 import { ProgressBar } from "@/components/ProgressBar";
 import { ContentUnavailable, ErrorNotice, LoadingBlock } from "@/components/States";
@@ -186,7 +186,7 @@ export function AdminHomePage() {
                 <ListRow
                   key={member.id}
                   to={`/admin/members/${member.id}`}
-                  leading={<Avatar name={member.fullName} size="sm" />}
+                  leading={<MemberAvatar memberId={member.id} name={member.fullName} size="sm" />}
                   title={member.fullName}
                   subtitle={`${member.memberCode} · ${dues?.weeksBehind} ${dues?.weeksBehind === 1 ? "week" : "weeks"} behind`}
                   trailing={<Money value={dues?.owing ?? 0} className="text-behind-text" />}

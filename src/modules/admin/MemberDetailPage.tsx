@@ -21,6 +21,7 @@ import type {
   SetupCodeResult,
 } from "@/data/types";
 import { PageHeader } from "@/components/PageHeader";
+import { MemberAvatar } from "@/components/Avatar";
 import { Button, ButtonLink } from "@/components/Button";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { setupCodeMessage } from "@/lib/whatsapp";
@@ -78,7 +79,8 @@ export function MemberDetailPage() {
         overline={`${member.memberCode} · ${member.drive}`}
         title={member.fullName}
       />
-      <div className="-mt-2 mb-5">
+      <div className="-mt-1 mb-5 flex flex-col items-center gap-2.5 text-center">
+        <MemberAvatar memberId={member.id} name={member.fullName} size="lg" />
         <MemberTags member={member} withCategory />
       </div>
 

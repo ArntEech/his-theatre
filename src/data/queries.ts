@@ -32,6 +32,17 @@ export function useCurrentMember() {
   return useQuery({ queryKey: keys.me, queryFn: api.getCurrentMember, staleTime: Infinity });
 }
 
+/** Profile pictures you can see: your own, or everyone's if you're an officer. */
+export function useMemberPhotos() {
+  const { data: me } = useCurrentMember();
+  return useQuery({
+    queryKey: ["photos", me?.id ?? "", me?.role ?? ""],
+    queryFn: api.getMemberPhotos,
+    enabled: Boolean(me),
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useCurrentSemester() {
   return useQuery({ queryKey: keys.currentSemester, queryFn: api.getCurrentSemester });
 }

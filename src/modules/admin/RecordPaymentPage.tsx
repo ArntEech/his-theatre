@@ -8,7 +8,7 @@ import { Button } from "@/components/Button";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { MoneyField, SearchField, Segmented, TextField } from "@/components/Field";
 import { ListRow, ListSection, ValueRow } from "@/components/List";
-import { Avatar } from "@/components/Avatar";
+import { MemberAvatar } from "@/components/Avatar";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ContentUnavailable, InlineError, LoadingBlock } from "@/components/States";
 import { Money } from "@/components/Money";
@@ -101,7 +101,7 @@ function MemberPicker({ onPick }: { onPick: (id: string) => void }) {
             <ListRow
               key={member.id}
               onClick={() => onPick(member.id)}
-              leading={<Avatar name={member.fullName} />}
+              leading={<MemberAvatar memberId={member.id} name={member.fullName} />}
               title={member.fullName}
               subtitle={`${member.memberCode} · ${member.drive}${member.isActive ? "" : " · Left"}`}
               trailing={
@@ -196,7 +196,7 @@ function PaymentForm({
     <form onSubmit={submit} className="flex flex-col" noValidate>
       <ListSection>
         <ListRow
-          leading={<Avatar name={member.fullName} />}
+          leading={<MemberAvatar memberId={member.id} name={member.fullName} />}
           title={member.fullName}
           subtitle={
             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">

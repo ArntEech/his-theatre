@@ -39,6 +39,8 @@ export interface MockDb {
   version: number;
   members: Member[];
   credentials: Record<string, Credential>;
+  /** Profile pictures by member id (small square images as data URLs). */
+  photos?: Record<string, string>;
   officers: OfficerLogin[];
   semesters: Semester[];
   weeks: SemesterWeek[];
