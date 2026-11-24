@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { Banknote, Smartphone, Sun } from "lucide-react";
+import { Banknote, ChevronRight, KeyRound, Smartphone, Sun } from "lucide-react";
 import {
   useCurrentMember,
   useCurrentSemester,
@@ -10,7 +10,7 @@ import {
 } from "@/data/queries";
 import type { PaymentRow } from "@/data/types";
 import { PageHeader } from "@/components/PageHeader";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { AttendanceGlyph } from "@/components/TabIcons";
 import { SummaryCard } from "@/components/Card";
 import { IconTile, ListRow, ListSection } from "@/components/List";
 import { BigMoney } from "@/components/Money";
@@ -34,8 +34,10 @@ export function HomePage() {
       <PageHeader
         overline={s ? formatDateLong(s.today).replace(/ \d{4}$/, "") : undefined}
         title={me ? `${greeting()}, ${firstName(me.fullName)}` : "Summary"}
-        action={<ThemeToggle />}
+        large
       />
+
+      {me?.officerPending && <OfficerPinPrompt />}
 
       {semester.isError && (
         <ErrorNotice error={semester.error} onRetry={() => semester.refetch()} />
@@ -64,6 +66,7 @@ export function HomePage() {
           />
         )}
         {isAdmin(me) && <OfficerCard />}
+        <AttendanceCard />
       </div>
 
       {dues.data && (
@@ -121,5 +124,52 @@ function OfficerCard() {
         {pending > 0 && ` · ${pending} ${pending === 1 ? "handover" : "handovers"} waiting`}
       </p>
     </SummaryCard>
+  );
+}
+
+/** Shown to someone made an officer who still has a 4-digit PIN. */
+function OfficerPinPrompt() {
+  return (
+    <Link
+      to="/settings/officer-pin"
+      className="mb-4 flex items-center gap-3 rounded-[0.9rem] bg-tint/15 p-4 ring-[0.5px] ring-tint/40 transition-opacity active:opacity-70"
+    >
+      <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-tint text-on-tint">
+        <KeyRound aria-hidden className="size-5" strokeWidth={2.3} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-headline font-semibold">Set Your Officer PIN</span>
+        <span className="block text-subhead text-label-2">
+          Officers use a 6-digit PIN. Choose yours to open the officer screens.
+        </span>
+      </span>
+      <ChevronRight aria-hidden className="size-5 shrink-0 text-label-3" />
+    </Link>
+  );
+}
+
+/** Attendance lives on Home (it isn't a tab). It's still being built. */
+function AttendanceCard() {
+  return (
+    <Link
+      to="/attendance"
+      className="flex items-center gap-3 rounded-[1rem] bg-cell p-4 transition-opacity active:opacity-70"
+    >
+      <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-[0.75rem] bg-tint/18 text-tint-text">
+        <AttendanceGlyph filled className="size-6" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          <span className="text-headline font-semibold">Attendance</span>
+          <span className="rounded-full bg-fill px-2 py-0.5 text-caption2 font-semibold text-label-2">
+            Soon
+          </span>
+        </span>
+        <span className="block text-subhead text-label-2">
+          Check in at Tuesday and Friday rehearsals.
+        </span>
+      </span>
+      <ChevronRight aria-hidden className="size-5 shrink-0 text-label-3" />
+    </Link>
   );
 }

@@ -4,7 +4,7 @@ import { activateMember } from "@/data/api";
 import { isWeakPin, WEAK_PIN_MESSAGE } from "@/lib/pin";
 import { useSessionMutation } from "@/data/queries";
 import { Button } from "@/components/Button";
-import { TextField } from "@/components/Field";
+import { Segmented, TextField } from "@/components/Field";
 import { InlineError } from "@/components/States";
 import { useFlash } from "@/components/Flash";
 import { AuthCover, DevHint, authLink } from "./AuthCover";
@@ -19,10 +19,20 @@ export function ActivatePage() {
   const [setupCode, setSetupCode] = useState("");
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
+  // Members choose 4 digits; officers (Director, Financial Secretary, Treasurer) choose 6.
+  const [kind, setKind] = useState<"member" | "officer">("member");
+  const digits = kind === "officer" ? 6 : 4;
   const activate = useSessionMutation(activateMember);
 
-  const mismatch = confirm.length === 4 && pin !== confirm;
-  const ready = memberCode.trim() && setupCode.length === 6 && pin.length === 4 && pin === confirm;
+  const mismatch = confirm.length === digits && pin !== confirm;
+  const ready =
+    memberCode.trim() && setupCode.length === 6 && pin.length === digits && pin === confirm;
+
+  function choose(next: "member" | "officer") {
+    setKind(next);
+    setPin("");
+    setConfirm("");
+  }
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -38,7 +48,7 @@ export function ActivatePage() {
   const pinProps = {
     type: "password",
     inputMode: "numeric" as const,
-    maxLength: 4,
+    maxLength: digits,
     autoComplete: "new-password",
     className: "tnum tracking-[0.4em]",
   };
@@ -47,7 +57,7 @@ export function ActivatePage() {
     <>
       <AuthCover
         title="Activate"
-        subtitle="Enter the 6-digit setup code from the Financial Secretary, then choose your PIN."
+        subtitle="Enter the 6-digit setup code an officer sent you, then choose your PIN."
       />
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
         <TextField
@@ -67,10 +77,23 @@ export function ActivatePage() {
           onChange={(e) => setSetupCode(e.target.value.replace(/\D/g, ""))}
           className="tnum tracking-[0.3em]"
         />
+        <Segmented<"member" | "officer">
+          label="I am"
+          value={kind}
+          onChange={choose}
+          options={[
+            { value: "member", label: "A member" },
+            { value: "officer", label: "An officer" },
+          ]}
+        />
         <TextField
           label="New PIN"
-          hint="4 digits. Avoid 1234, 1111 or a year."
-          error={pin.length === 4 && isWeakPin(pin) ? WEAK_PIN_MESSAGE : null}
+          hint={
+            kind === "officer"
+              ? "Officers choose 6 digits. Avoid 123456, 111111 or 121212."
+              : "4 digits. Avoid 1234, 1111 or a year."
+          }
+          error={pin.length === digits && isWeakPin(pin) ? WEAK_PIN_MESSAGE : null}
           value={pin}
           onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
           {...pinProps}
@@ -93,7 +116,7 @@ export function ActivatePage() {
         </Link>
       </div>
       <DevHint>
-        <p>HIS-023 with setup code 482913. Officers can issue new codes from a member's page.</p>
+        <p>HIS-023 with setup code 482913 (a member: 4 digits). Officers choose 6 digits.</p>
       </DevHint>
     </>
   );

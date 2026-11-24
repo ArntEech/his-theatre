@@ -14,6 +14,7 @@ import type {
   Member,
   JoinedAs,
   MemberCategory,
+  SemesterWeek,
   PaymentRow,
   Position,
   Role,
@@ -32,7 +33,7 @@ import { ContentUnavailable, ErrorNotice, InlineError, LoadingBlock } from "@/co
 import { useFlash } from "@/components/Flash";
 import { Money } from "@/components/Money";
 import { formatCedi, parseCedi } from "@/lib/money";
-import { formatDate, formatDateTime } from "@/lib/dates";
+import { formatDate, formatDateTime, formatDay } from "@/lib/dates";
 import { firstName, isDirector } from "@/lib/roles";
 import { DuesCard } from "@/modules/dues/DuesCard";
 import { PaymentList } from "@/modules/dues/PaymentList";
@@ -179,7 +180,7 @@ export function MemberDetailPage() {
             }
           />
         )}
-        {member.isActive && (
+        {member.isActive && member.id !== me?.id && (isDirector(me) || member.role === "member") && (
           <ListRow
             leading={<IconTile icon={KeyRound} color="gold" />}
             title={member.isActivated ? "Reset PIN with a Setup Code" : "Issue a Setup Code"}
@@ -224,7 +225,13 @@ export function MemberDetailPage() {
         />
       )}
       <SetupCodeSheet open={sheet === "code"} onClose={() => setSheet(null)} member={member} />
-      <EditSheet open={sheet === "edit"} onClose={() => setSheet(null)} member={member} />
+      <EditSheet
+        open={sheet === "edit"}
+        onClose={() => setSheet(null)}
+        member={member}
+        startWeekNo={d.memberSemester?.startWeekNo ?? null}
+        weeks={semester.data && !semester.data.isClosed ? semester.data.weeks : []}
+      />
       <RoleSheet open={sheet === "role"} onClose={() => setSheet(null)} member={member} />
       <LeaveSheet
         open={sheet === "leave"}
@@ -377,13 +384,20 @@ function SetupCodeSheet({ open, onClose, member }: SheetProps) {
   );
 }
 
-function EditSheet({ open, onClose, member }: SheetProps) {
+function EditSheet({
+  open,
+  onClose,
+  member,
+  startWeekNo,
+  weeks,
+}: SheetProps & { startWeekNo: number | null; weeks: SemesterWeek[] }) {
   const flash = useFlash();
   const [fullName, setFullName] = useState(member.fullName);
   const [phone, setPhone] = useState(member.phone);
   const [drive, setDrive] = useState(member.drive);
   const [category, setCategory] = useState<MemberCategory>(member.category);
   const [portfolio, setPortfolio] = useState(member.portfolio);
+  const [startWeek, setStartWeek] = useState(startWeekNo ?? 1);
   const p = member.profile;
   const [birthday, setBirthday] = useState(formatBirthday(p));
   const [level, setLevel] = useState(p.level ? String(p.level) : "");
@@ -402,6 +416,7 @@ function EditSheet({ open, onClose, member }: SheetProps) {
     setDrive(member.drive);
     setCategory(member.category);
     setPortfolio(member.portfolio);
+    setStartWeek(startWeekNo ?? 1);
     setBirthday(formatBirthday(p));
     setLevel(p.level ? String(p.level) : "");
     setJoinedAs(p.joinedAs ?? "");
@@ -434,7 +449,8 @@ function EditSheet({ open, onClose, member }: SheetProps) {
       experience,
       experienceNotes,
     };
-    update.mutate([member.id, { fullName, phone, drive, category, portfolio, profile }], {
+    const dues = startWeekNo !== null && weeks.length ? { startWeekNo: startWeek } : {};
+    update.mutate([member.id, { fullName, phone, drive, category, portfolio, profile, ...dues }], {
       onSuccess: () => {
         flash("Details saved.", "success");
         onClose();
@@ -479,6 +495,21 @@ function EditSheet({ open, onClose, member }: SheetProps) {
           <p className="px-1 text-footnote text-label-2">
             The weekly rate for this semester will change to the {category} rate.
           </p>
+        )}
+        {startWeekNo !== null && weeks.length > 0 && (
+          <SelectField
+            label="Dues start"
+            hint="The week they started coming. They pay from this week on."
+            value={String(startWeek)}
+            onChange={(e) => setStartWeek(Number(e.target.value))}
+          >
+            {weeks.map((w) => (
+              <option key={w.id} value={w.weekNo}>
+                Week {w.weekNo} · {formatDay(w.weekStart)}
+                {w.label ? ` · ${w.label}` : ""}
+              </option>
+            ))}
+          </SelectField>
         )}
         <p className="mt-2 px-1 text-footnote font-semibold tracking-wide text-label-2 uppercase">
           Profile
@@ -584,8 +615,9 @@ function RoleSheet({ open, onClose, member }: SheetProps) {
           ]}
         />
         <p className="px-1 text-footnote text-label-2">
-          Officers record money and manage members. Full access also changes roles and closes
-          semesters.
+          Officers record money and manage members. Full access also changes roles, sets rates and
+          closes semesters. Officers sign in with a 6-digit PIN: if they already use the app, they'll
+          be asked to choose one the next time they open it.
         </p>
         {role !== "member" && (
           <SelectField

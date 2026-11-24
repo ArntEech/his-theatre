@@ -37,6 +37,11 @@ export interface Member {
   isActivated: boolean;
   isLocked: boolean;
   /**
+   * An officer whose PIN is still 4 digits (for example just made an officer): they see the
+   * member screens until they choose a 6-digit officer PIN.
+   */
+  officerPending?: boolean;
+  /**
    * What they do in the group, e.g. "Drama Director" or "Secretary"; "" for most members.
    * Shown under their name. Separate from `position`, which gives finance powers.
    */
@@ -212,14 +217,6 @@ export type DuesStatus = "paid_up" | "behind" | "ahead";
 
 export interface Session {
   member: Member;
-}
-
-export interface OfficerChallenge {
-  /**
-   * Only on an officer's first sign-in: scan this into an authenticator app
-   * (Google Authenticator, Microsoft Authenticator…), then enter the code it shows.
-   */
-  setup?: { qrCode: string; secret: string };
 }
 
 export interface SemesterDetail extends Semester {
@@ -417,6 +414,8 @@ export type MemberUpdate = Partial<
   Pick<Member, "fullName" | "phone" | "drive" | "category" | "portfolio">
 > & {
   profile?: Partial<MemberProfile>;
+  /** The week of the current semester their dues start, e.g. the week they first came. */
+  startWeekNo?: number;
 };
 
 export interface RecordPaymentInput {

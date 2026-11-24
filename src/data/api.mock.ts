@@ -10,6 +10,7 @@ import { addDays, localToday, mondayOf } from "@/lib/dates";
 import { formatCedi } from "@/lib/money";
 import { isDemo } from "@/lib/env";
 import { normalizeMemberCode } from "@/lib/member-code";
+import { isWeakPin, WEAK_PIN_MESSAGE } from "@/lib/pin";
 import {
   ApiError,
   type Adjustment,
@@ -39,7 +40,6 @@ import {
   type MemberUpdate,
   type MyDues,
   type NewMemberInput,
-  type OfficerChallenge,
   type OtherIncome,
   type Payment,
   type PaymentRow,
@@ -136,13 +136,13 @@ function isAdmin(member: Member) {
 
 function requireAdmin(): Member {
   const member = requireMember();
-  if (!isAdmin(member)) throw new ApiError("You don't have access to this page.", "forbidden");
+  if (!isAdmin(member) || !hasOfficerPin(member)) throw new ApiError("You don't have access to this page.", "forbidden");
   return member;
 }
 
 function requireSuperAdmin(): Member {
   const member = requireMember();
-  if (member.role !== "super_admin")
+  if (member.role !== "super_admin" || !hasOfficerPin(member))
     throw new ApiError("Only the Director can do this.", "forbidden");
   return member;
 }
@@ -380,8 +380,21 @@ function requireOpenSemester(semesterId: string) {
   return semester;
 }
 
-function validatePin(pin: string) {
-  if (!/^\d{4}$/.test(pin)) throw new ApiError("Your PIN must be exactly 4 digits.", "invalid");
+/** Members choose 4 digits; officers 6 (the same rule as the database). */
+function pinDigitsFor(member: Member): number {
+  return isAdmin(member) ? 6 : 4;
+}
+
+function validatePin(pin: string, digits = 4) {
+  if (digits === 6 && !/^\d{6}$/.test(pin))
+    throw new ApiError("Officers choose a 6-digit PIN.", "invalid");
+  if (digits === 4 && !/^\d{4}$/.test(pin)) throw new ApiError("Choose a 4-digit PIN.", "invalid");
+  if (isWeakPin(pin)) throw new ApiError(WEAK_PIN_MESSAGE, "weak_pin");
+}
+
+/** An officer whose PIN is still 4 digits has only member powers until they choose 6. */
+function hasOfficerPin(member: Member): boolean {
+  return (db.credentials[member.id]?.pin ?? "").length === 6;
 }
 
 /* ------------------------------------------------------------------ */
@@ -454,7 +467,7 @@ export async function activateMember(
       "expired",
     );
   }
-  validatePin(newPin);
+  validatePin(newPin, pinDigitsFor(member));
   cred.pin = newPin;
   cred.setupCode = null;
   cred.setupCodeExpiresAt = null;
@@ -467,37 +480,9 @@ export async function activateMember(
   return clone({ member });
 }
 
-export async function signInOfficer(email: string, password: string): Promise<OfficerChallenge> {
-  await delay();
-  const login = db.officers.find((o) => o.email.toLowerCase() === email.trim().toLowerCase());
-  if (!login || login.password !== password)
-    throw new ApiError("That email and password do not match.", "invalid_credentials");
-  const member = findMember(login.memberId);
-  if (!isAdmin(member) || !member.isActive)
-    throw new ApiError("This officer account is no longer active.", "inactive");
-  db.session.pendingOfficerId = member.id;
-  persist();
-  // MOCK: officers already have an authenticator app set up; every code is 246810.
-  return {};
-}
-
-export async function verifyOfficerCode(code: string): Promise<Session> {
-  await delay();
-  const pendingId = db.session.pendingOfficerId;
-  if (!pendingId) throw new ApiError("Start again with your email and password.", "no_challenge");
-  // MOCK: every officer's verification code is 246810.
-  if (code.trim() !== "246810")
-    throw new ApiError("That code is not right. Check the message and try again.", "invalid_code");
-  const member = findMember(pendingId);
-  db.session = { memberId: member.id, pendingOfficerId: null };
-  audit(
-    member,
-    "Signed in",
-    "sessions",
-    `${member.position ?? "Officer"} signed in with email and code`,
-  );
-  persist();
-  return clone({ member });
+/** MOCK: demo data lives on this phone only, so there is nothing to listen for. */
+export function subscribeToChanges(_onChange: () => void): () => void {
+  return () => {};
 }
 
 export async function signOut(): Promise<void> {
@@ -508,7 +493,15 @@ export async function signOut(): Promise<void> {
 
 export async function getCurrentMember(): Promise<Member | null> {
   await delay();
-  return clone(sessionMember());
+  const member = sessionMember();
+  if (member && isAdmin(member) && !hasOfficerPin(member))
+    return clone({ ...member, role: "member" as const, position: null, officerPending: true });
+  return clone(member);
+}
+
+/** MOCK: there are no other phones in the demo. */
+export async function signOutOtherDevices(): Promise<void> {
+  await delay();
 }
 
 export async function changePin(currentPin: string, newPin: string): Promise<void> {
@@ -516,7 +509,7 @@ export async function changePin(currentPin: string, newPin: string): Promise<voi
   const member = requireMember();
   const cred = db.credentials[member.id];
   if (cred.pin !== currentPin) throw new ApiError("Your current PIN is not right.", "wrong_pin");
-  validatePin(newPin);
+  validatePin(newPin, pinDigitsFor(member));
   if (newPin === currentPin)
     throw new ApiError("Choose a PIN that is different from your current one.", "invalid");
   cred.pin = newPin;
@@ -682,6 +675,17 @@ export async function updateMember(id: string, patch: MemberUpdate): Promise<Mem
       semester && db.memberSemesters.find((x) => x.memberId === id && x.semesterId === semester.id);
     if (ms && semester && !semester.isClosed) ms.category = patch.category;
     changes.push("category");
+  }
+  if (patch.startWeekNo !== undefined) {
+    const semester = currentSemesterRecord();
+    const ms = semester && db.memberSemesters.find((x) => x.memberId === id && x.semesterId === semester.id);
+    const weeks = semester ? weeksOf(semester.id).length : 0;
+    if (semester && ms && patch.startWeekNo !== ms.startWeekNo) {
+      if (!Number.isInteger(patch.startWeekNo) || patch.startWeekNo < 1 || patch.startWeekNo > weeks)
+        throw new ApiError(`Choose a week from 1 to ${weeks}.`, "invalid");
+      ms.startWeekNo = patch.startWeekNo;
+      changes.push("dues start week");
+    }
   }
   if (patch.portfolio !== undefined && patch.portfolio.trim() !== member.portfolio) {
     member.portfolio = patch.portfolio.trim().slice(0, 60);
@@ -1180,7 +1184,8 @@ export async function getReport(from: IsoDate, to: IsoDate): Promise<Report> {
 
 export async function saveSemester(input: SemesterInput): Promise<SemesterDetail> {
   await delay();
-  const actor = requireSuperAdmin();
+  // Any officer may start a semester or change its name and dates; rates stay with the Director.
+  const actor = requireAdmin();
   const name = requireText(input.name, "A name", 2);
   if (!input.startsOn || !input.endsOn || input.startsOn > input.endsOn) {
     throw new ApiError("The semester must end after it starts.", "invalid");
@@ -1355,6 +1360,10 @@ export async function issueSetupCodes(memberIds: string[]): Promise<SetupCodeLis
 
 function newSetupCode(actor: Member, member: Member): SetupCodeResult {
   if (!member.isActive) throw new ApiError("This member is no longer active.", "inactive");
+  if (isAdmin(member) && actor.role !== "super_admin")
+    throw new ApiError("Only the Director can give an officer a setup code.", "forbidden");
+  if (member.id === actor.id)
+    throw new ApiError("Change your own PIN in Settings instead.", "invalid");
   const setupCode = String(Math.floor(100000 + Math.random() * 900000));
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const cred = db.credentials[member.id];

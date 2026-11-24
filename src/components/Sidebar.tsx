@@ -106,7 +106,7 @@ export function Sidebar({ member }: { member: Member | null | undefined }) {
       {member && (
         <NavLink
           to="/profile"
-          aria-label={`Your profile: ${member.fullName}`}
+          aria-label={`Your account: ${member.fullName}`}
           className={({ isActive }) =>
             cx(
               "flex items-center gap-3 border-t-[0.5px] border-separator px-5 py-4 transition-colors hover:bg-fill active:bg-fill",

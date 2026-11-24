@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { Download, KeyRound, Share2 } from "lucide-react";
 import { issueSetupCodes } from "@/data/api";
-import { useApiMutation, useMembers } from "@/data/queries";
+import { useApiMutation, useCurrentMember, useMembers } from "@/data/queries";
+import { isAdmin, isDirector } from "@/lib/roles";
 import type { SetupCodeListItem } from "@/data/types";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/Button";
@@ -18,6 +19,9 @@ import { setupCodeMessage, whatsappLink } from "@/lib/whatsapp";
  */
 export function SetupCodesPage() {
   const members = useMembers({});
+  const { data: me } = useCurrentMember();
+  // Only the Director gives officers their codes (so no officer can take over another's account).
+  const director = isDirector(me);
   const create = useApiMutation(issueSetupCodes);
   const [codes, setCodes] = useState<SetupCodeListItem[] | null>(null);
   const appUrl = location.origin;
@@ -26,9 +30,9 @@ export function SetupCodesPage() {
     () =>
       (members.data ?? [])
         .map((i) => i.member)
-        .filter((m) => m.isActive && !m.isActivated)
+        .filter((m) => m.isActive && !m.isActivated && m.id !== me?.id && (director || !isAdmin(m)))
         .sort((a, b) => a.memberCode.localeCompare(b.memberCode)),
-    [members.data],
+    [members.data, director, me?.id],
   );
 
   function download(list: SetupCodeListItem[]) {
@@ -130,14 +134,18 @@ export function SetupCodesPage() {
         <>
           <ListSection
             header={`${waiting.length} not signed in yet`}
-            footer="Each gets their own 6-digit code, valid for 7 days. They use it once with their Member ID to choose a 4-digit PIN."
+            footer={
+              director
+                ? "Each gets their own 6-digit code, valid for 7 days. They use it once with their Member ID to choose a PIN: 4 digits for members, 6 for officers."
+                : "Each gets their own 6-digit code, valid for 7 days. They use it once with their Member ID to choose a 4-digit PIN. Officers get their codes from the Director."
+            }
           >
             {waiting.map((m) => (
               <ListRow
                 key={m.id}
                 leading={<IconTile icon={KeyRound} color="gray" />}
                 title={m.fullName}
-                subtitle={`${m.memberCode}${m.portfolio ? ` · ${m.portfolio}` : ""}`}
+                subtitle={`${m.memberCode}${isAdmin(m) ? ` · Officer${m.position ? `, ${m.position}` : ""}` : m.portfolio ? ` · ${m.portfolio}` : ""}`}
                 to={`/admin/members/${m.id}`}
               />
             ))}

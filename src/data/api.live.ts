@@ -2,13 +2,13 @@
 //
 // Same functions and shapes as api.mock.ts, so screens can't tell which one they use.
 // Security does NOT live here. The database's own rules decide who may read or change what
-// (supabase/migrations/0001_his_theatre.sql): officer powers need the authenticator code,
+// (supabase/migrations/): officer powers need a 6-digit officer PIN,
 // money rows can't be edited or deleted, handovers go only from the Financial Secretary to
 // the Treasurer, and so on. This file asks, then turns answers into the app's shapes and
 // friendly words. Money is always integer pesewas.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { addDays, localToday, mondayOf } from "@/lib/dates";
+import { localToday } from "@/lib/dates";
 import { normalizeMemberCode } from "@/lib/member-code";
 import { isWeakPin, WEAK_PIN_MESSAGE } from "@/lib/pin";
 import {
@@ -57,7 +57,6 @@ import {
   type MemberUpdate,
   type MyDues,
   type NewMemberInput,
-  type OfficerChallenge,
   type OtherIncome,
   type Payment,
   type PaymentRow,
@@ -111,7 +110,7 @@ function toApiError(error: DbError): ApiError {
     return new ApiError("Please sign in again.", "unauthenticated");
   if (/row-level security|permission denied/i.test(message))
     return new ApiError(
-      "You don't have permission to do that. Officers: sign out, then sign in again with your authenticator code.",
+      "You don't have permission to do that. Officers: make sure you've set your 6-digit officer PIN (Settings).",
       "forbidden",
     );
   if (/Only the Director|Only officers/i.test(message)) return new ApiError(message, "forbidden");
@@ -312,17 +311,6 @@ const toAudit = (r: Row): AuditEntry => ({
 /* Who is signed in, and what they can see                              */
 /* ------------------------------------------------------------------ */
 
-/** Reads the "aal" claim: "aal2" means the authenticator code was passed in this session. */
-function aalOf(accessToken: string): string {
-  try {
-    const payload = accessToken.split(".")[1] ?? "";
-    const json = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
-    return String(json.aal ?? "aal1");
-  } catch {
-    return "aal1";
-  }
-}
-
 const isAdmin = (m: Member) => m.role === "admin" || m.role === "super_admin";
 const today = () => localToday();
 
@@ -339,10 +327,13 @@ export async function getCurrentMember(): Promise<Member | null> {
   if (error) throw toApiError(error);
   if (!row || !row.is_active) return null;
   const member = toMember(row);
-  // Officer powers count only after the authenticator code. Until then, show the member view
-  // (the database refuses officer actions anyway).
-  if (isAdmin(member) && aalOf(session.access_token) !== "aal2") {
-    return { ...member, role: "member", position: null };
+  // Officer powers count only once the officer has a 6-digit PIN. Until then, show the member
+  // view with a prompt to set one (the database refuses officer actions anyway).
+  if (isAdmin(member)) {
+    const { data: status } = await sb().rpc("my_pin_status");
+    if ((status as { needs_officer_pin?: boolean } | null)?.needs_officer_pin) {
+      return { ...member, role: "member", position: null, officerPending: true };
+    }
   }
   return member;
 }
@@ -464,7 +455,8 @@ function findMember(s: Snapshot, id: string): Member {
 }
 
 function validatePin(pin: string) {
-  if (!/^\d{4}$/.test(pin)) throw new ApiError("Your PIN must be exactly 4 digits.", "invalid");
+  if (!/^(\d{4}|\d{6})$/.test(pin))
+    throw new ApiError("Your PIN must be 4 digits (6 for officers).", "invalid");
   if (isWeakPin(pin)) throw new ApiError(WEAK_PIN_MESSAGE, "weak_pin");
 }
 
@@ -514,67 +506,7 @@ export async function activateMember(
   });
 }
 
-let pendingFactorId: string | null = null;
-
-export async function signInOfficer(email: string, password: string): Promise<OfficerChallenge> {
-  changed();
-  pendingFactorId = null;
-  const { data, error } = await sb().auth.signInWithPassword({ email: email.trim(), password });
-  if (error || !data.user) {
-    if (error && /fetch|network/i.test(error.message)) throw toApiError(error);
-    throw new ApiError("That email and password do not match.", "invalid_credentials");
-  }
-  const { data: row } = await sb()
-    .from("members")
-    .select("role, is_active")
-    .eq("auth_user_id", data.user.id)
-    .maybeSingle();
-  if (!row || !row.is_active || row.role === "member") {
-    await sb().auth.signOut({ scope: "local" });
-    throw new ApiError("This account isn't set up as an officer. Ask the Director.", "inactive");
-  }
-
-  const { data: factors, error: factorError } = await sb().auth.mfa.listFactors();
-  if (factorError) throw toApiError(factorError);
-  const verified = factors.totp.find((f) => f.status === "verified");
-  if (verified) {
-    pendingFactorId = verified.id;
-    return {};
-  }
-
-  // First officer sign-in: set up the authenticator app. Clear any half-finished attempt first.
-  for (const f of factors.all.filter((x) => x.status !== "verified")) {
-    await sb().auth.mfa.unenroll({ factorId: f.id });
-  }
-  const { data: enrolled, error: enrollError } = await sb().auth.mfa.enroll({
-    factorType: "totp",
-    friendlyName: "His Theatre",
-  });
-  if (enrollError || !enrolled) throw toApiError(enrollError);
-  pendingFactorId = enrolled.id;
-  return { setup: { qrCode: enrolled.totp.qr_code, secret: enrolled.totp.secret } };
-}
-
-export async function verifyOfficerCode(code: string): Promise<Session> {
-  if (!pendingFactorId) throw new ApiError("Start again with your email and password.", "no_challenge");
-  const { error } = await sb().auth.mfa.challengeAndVerify({
-    factorId: pendingFactorId,
-    code: code.trim(),
-  });
-  if (error)
-    throw new ApiError(
-      "That code is not right. Use the newest code in your app, and make sure your phone's time is set automatically.",
-      "invalid_code",
-    );
-  pendingFactorId = null;
-  changed();
-  const member = await getCurrentMember();
-  if (!member) throw new ApiError("Please sign in again.", "unauthenticated");
-  return { member };
-}
-
 export async function signOut(): Promise<void> {
-  pendingFactorId = null;
   changed();
   await sb().auth.signOut({ scope: "local" });
 }
@@ -584,6 +516,13 @@ export async function changePin(currentPin: string, newPin: string): Promise<voi
   if (newPin === currentPin)
     throw new ApiError("Choose a PIN that is different from your current one.", "invalid");
   await run(sb().rpc("change_pin", { p_current: currentPin, p_new: newPin }));
+  changed();
+}
+
+/** Signs this account out on every other phone and computer; this one stays signed in. */
+export async function signOutOtherDevices(): Promise<void> {
+  const { error } = await sb().auth.signOut({ scope: "others" });
+  if (error) throw toApiError(error);
 }
 
 /* ------------------------------------------------------------------ */
@@ -735,6 +674,24 @@ export async function updateMember(id: string, patch: MemberUpdate): Promise<Mem
           .eq("member_id", id)
           .eq("semester_id", semester.id),
       );
+    }
+  }
+  if (patch.startWeekNo !== undefined) {
+    const semester = currentSemesterRecord(s, today());
+    const ms = semester && s.memberSemesters.find((x) => x.memberId === id && x.semesterId === semester.id);
+    const weeks = semester ? weeksOf(s, semester.id).length : 0;
+    if (semester && ms && patch.startWeekNo !== ms.startWeekNo) {
+      if (semester.isClosed) throw new ApiError("This semester is closed.", "closed");
+      if (!Number.isInteger(patch.startWeekNo) || patch.startWeekNo < 1 || patch.startWeekNo > weeks)
+        throw new ApiError(`Choose a week from 1 to ${weeks}.`, "invalid");
+      await run(
+        sb()
+          .from("member_semesters")
+          .update({ start_week_no: patch.startWeekNo })
+          .eq("member_id", id)
+          .eq("semester_id", semester.id),
+      );
+      changed();
     }
   }
   return toMember(row);
@@ -1051,79 +1008,21 @@ export async function getReport(from: IsoDate, to: IsoDate): Promise<Report> {
 /* ------------------------------------------------------------------ */
 
 export async function saveSemester(input: SemesterInput): Promise<SemesterDetail> {
-  const { s } = await asSuperAdmin();
+  // Any officer may start a semester or change its name and dates; the server moves the weeks.
+  const { s } = await asAdmin();
   const name = requireText(input.name, "A name", 2, 60);
   if (!input.startsOn || !input.endsOn || input.startsOn >= input.endsOn)
     throw new ApiError("The semester must end after it starts.", "invalid");
-  // One week per Monday, from the week holding the start date up to the end date.
-  const mondays: IsoDate[] = [];
-  for (let d = mondayOf(input.startsOn); d <= input.endsOn; d = addDays(d, 7)) mondays.push(d);
-  if (mondays.length > 30) throw new ApiError("A semester cannot be longer than 30 weeks.", "invalid");
-
-  let semesterId: string;
-  if (input.id) {
-    const semester = findSemester(s, input.id);
-    if (semester.isClosed) throw new ApiError("A closed semester cannot be changed.", "closed");
-    semesterId = semester.id;
-    await run(
-      sb()
-        .from("semesters")
-        .update({ name, starts_on: input.startsOn, ends_on: input.endsOn })
-        .eq("id", semesterId),
-    );
-    const previous = weeksOf(s, semesterId);
-    const gone = previous.filter((w) => !mondays.includes(w.weekStart));
-    if (gone.length)
-      await run(sb().from("semester_weeks").delete().in("id", gone.map((w) => w.id)));
-    // Renumber kept weeks in two steps so week numbers never clash on the way.
-    const kept = previous.filter((w) => mondays.includes(w.weekStart));
-    const moved = kept.filter((w) => w.weekNo !== mondays.indexOf(w.weekStart) + 1);
-    for (const w of moved)
-      await run(sb().from("semester_weeks").update({ week_no: w.weekNo + 1000 }).eq("id", w.id));
-    for (const w of moved)
-      await run(
-        sb()
-          .from("semester_weeks")
-          .update({ week_no: mondays.indexOf(w.weekStart) + 1 })
-          .eq("id", w.id),
-      );
-    const added = mondays
-      .map((weekStart, i) => ({ semester_id: semesterId, week_no: i + 1, week_start: weekStart }))
-      .filter((w) => !kept.some((k) => k.weekStart === w.week_start));
-    if (added.length) await run(sb().from("semester_weeks").insert(added));
-  } else {
-    const previous = currentSemesterRecord(s, today());
-    const row = await run<Row>(
-      sb()
-        .from("semesters")
-        .insert({ name, starts_on: input.startsOn, ends_on: input.endsOn })
-        .select()
-        .single(),
-    );
-    semesterId = row.id;
-    await run(
-      sb()
-        .from("semester_weeks")
-        .insert(mondays.map((weekStart, i) => ({ semester_id: semesterId, week_no: i + 1, week_start: weekStart }))),
-    );
-    await run(
-      sb()
-        .from("dues_rates")
-        .insert(
-          (["executive", "member"] as const).map((category) => ({
-            semester_id: semesterId,
-            category,
-            weekly_amount:
-              s.rates.find((r) => r.semesterId === previous?.id && r.category === category)
-                ?.weeklyAmount ?? (category === "executive" ? 1000 : 500),
-          })),
-        ),
-    );
-    const roll = s.members
-      .filter((m) => m.isActive)
-      .map((m) => ({ member_id: m.id, semester_id: semesterId, category: m.category, start_week_no: 1 }));
-    if (roll.length) await run(sb().from("member_semesters").insert(roll));
-  }
+  if (input.id && findSemester(s, input.id).isClosed)
+    throw new ApiError("A closed semester cannot be changed.", "closed");
+  const semesterId = await run<string>(
+    sb().rpc("save_semester", {
+      p_id: input.id ?? null,
+      p_name: name,
+      p_starts: input.startsOn,
+      p_ends: input.endsOn,
+    }),
+  );
   changed();
   const fresh = (await load()).s;
   return semesterDetail(fresh, findSemester(fresh, semesterId), today());
@@ -1265,6 +1164,42 @@ export async function listAudit(filters: AuditFilters = {}): Promise<AuditEntry[
   return rows
     .filter((a) => !search || `${a.actorName} ${a.action} ${a.summary}`.toLowerCase().includes(search))
     .slice(0, 300);
+}
+
+/* ------------------------------------------------------------------ */
+/* Live updates                                                         */
+/* ------------------------------------------------------------------ */
+
+const WATCHED = [
+  "payments",
+  "adjustments",
+  "expenses",
+  "other_income",
+  "handovers",
+  "members",
+  "member_semesters",
+  "semester_weeks",
+  "dues_rates",
+  "semesters",
+];
+
+/**
+ * Calls onChange whenever something this person may see changes in the database, so screens
+ * refresh within a second or two without anyone pulling down. The database's rules still
+ * apply: members only hear about their own records.
+ */
+export function subscribeToChanges(onChange: () => void): () => void {
+  const channel = sb().channel(`his-theatre-${Math.random().toString(36).slice(2)}`);
+  for (const table of WATCHED) {
+    channel.on("postgres_changes", { event: "*", schema: "public", table }, () => {
+      changed();
+      onChange();
+    });
+  }
+  channel.subscribe();
+  return () => {
+    void sb().removeChannel(channel);
+  };
 }
 
 /* ------------------------------------------------------------------ */

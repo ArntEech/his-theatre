@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import * as api from "./api";
 
+// Officers (HIS-001 to HIS-003) have a 6-digit officer PIN in the demo data; members use 4 digits.
 async function signInAs(code: string) {
-  await api.signInMember(code, "1234");
+  const officer = ["HIS-001", "HIS-002", "HIS-003"].includes(code);
+  await api.signInMember(code, officer ? "258036" : "1234");
 }
 
 describe("mock api money rules", () => {

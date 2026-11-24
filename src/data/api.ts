@@ -14,9 +14,9 @@ const api: typeof mock = usesLiveData ? live : mock;
 export const {
   signInMember,
   activateMember,
-  signInOfficer,
-  verifyOfficerCode,
+  subscribeToChanges,
   signOut,
+  signOutOtherDevices,
   getCurrentMember,
   changePin,
   getMyDues,

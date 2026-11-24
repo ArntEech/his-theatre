@@ -9,3 +9,10 @@ describe("isWeakPin", () => {
     expect(isWeakPin(pin)).toBe(false),
   );
 });
+
+describe("isWeakPin, 6-digit officer PINs", () => {
+  it.each(["123456", "654321", "111111", "121212", "123123", "12345"])("%s is weak", (pin) =>
+    expect(isWeakPin(pin)).toBe(true),
+  );
+  it.each(["470815", "582047", "905163"])("%s is fine", (pin) => expect(isWeakPin(pin)).toBe(false));
+});
