@@ -6,7 +6,7 @@ import {
   AttendanceGlyph,
   DuesGlyph,
   HomeGlyph,
-  ProfileGlyph,
+  SettingsGlyph,
 } from "./TabIcons";
 
 export interface NavItem {
@@ -20,37 +20,47 @@ export interface NavItem {
   soon?: boolean;
 }
 
+/** Every place in the app, for the sidebar on tablets and laptops. */
 export function mainNav(showAdmin: boolean): NavItem[] {
   return [
     { to: "/", label: "Home", glyph: HomeGlyph, end: true },
     { to: "/dues", label: "Dues", glyph: DuesGlyph },
-    // In development: their pages say "Coming soon" for now.
-    { to: "/attendance", label: "Attendance", short: "Attend", glyph: AttendanceGlyph, soon: true },
-    {
-      to: "/announcements",
-      label: "Announcements",
-      short: "News",
-      glyph: AnnouncementsGlyph,
-      soon: true,
-    },
     ...(showAdmin ? [{ to: "/admin", label: "Admin", glyph: AdminGlyph }] : []),
-    { to: "/profile", label: "Profile", glyph: ProfileGlyph },
+    // In development: their pages say "Coming soon" for now.
+    { to: "/attendance", label: "Attendance", glyph: AttendanceGlyph, soon: true },
+    { to: "/announcements", label: "Announcements", short: "News", glyph: AnnouncementsGlyph, soon: true },
+    { to: "/settings", label: "Settings", glyph: SettingsGlyph },
+  ];
+}
+
+/**
+ * The four phone tabs. Members: Home, Dues, News, Settings. Officers swap Dues for Admin
+ * (their own dues are one tap away on Home). Attendance is a card on Home.
+ */
+export function phoneTabs(showAdmin: boolean): NavItem[] {
+  return [
+    { to: "/", label: "Home", glyph: HomeGlyph, end: true },
+    showAdmin
+      ? { to: "/admin", label: "Admin", glyph: AdminGlyph }
+      : { to: "/dues", label: "Dues", glyph: DuesGlyph },
+    { to: "/announcements", label: "Announcements", short: "News", glyph: AnnouncementsGlyph },
+    { to: "/settings", label: "Settings", glyph: SettingsGlyph },
   ];
 }
 
 /**
  * Floating tab bar for phones, in the style of Telegram and Pinterest: a rounded glass bar
- * that floats just above the bottom of the screen. The selected tab opens into a pill with
+ * that floats just above the bottom of the screen, close to the edge. The selected tab opens into a pill with
  * its name; the others show only their icon. Tablets and laptops use the sidebar instead.
  */
 export function TabBar({ showAdmin }: { showAdmin: boolean }) {
   return (
     <nav
       aria-label="Main"
-      className="no-print pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(0.625rem+env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] md:hidden"
+      className="no-print pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(0.25rem+env(safe-area-inset-bottom)*0.6)] pl-[max(0.75rem,env(safe-area-inset-left))] md:hidden"
     >
       <ul className="tabbar material pointer-events-auto mx-auto flex max-w-[28rem] items-center justify-between gap-0.5 rounded-full p-1.5 shadow-[0_10px_30px_-10px_rgb(0_0_0/0.35),0_2px_8px_-2px_rgb(0_0_0/0.12)] ring-[0.5px] ring-separator">
-        {mainNav(showAdmin).map(({ to, label, short, glyph: Glyph, end }) => (
+        {phoneTabs(showAdmin).map(({ to, label, short, glyph: Glyph, end }) => (
           <li key={to} className="flex min-w-0 flex-[1_1_0] justify-center has-[[aria-current=page]]:flex-[1.9_1_0]">
             <NavLink
               to={to}

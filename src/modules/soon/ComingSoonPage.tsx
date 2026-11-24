@@ -13,7 +13,9 @@ export function ComingSoonPage({
   glyph: Glyph,
   summary,
   plans,
+  back,
 }: {
+  back?: { to: string; label: string };
   title: string;
   glyph: ComponentType<{ filled?: boolean; className?: string }>;
   summary: string;
@@ -21,7 +23,7 @@ export function ComingSoonPage({
 }) {
   return (
     <>
-      <PageHeader title={title} />
+      <PageHeader title={title} back={back} />
       <section className="mb-8 flex flex-col items-center text-center">
         <span className="flex size-20 items-center justify-center rounded-[1.4rem] bg-tint/18 text-tint-text">
           <Glyph filled className="size-10" />
@@ -49,13 +51,15 @@ export function ComingSoonPage({
 export function AttendancePage() {
   return (
     <ComingSoonPage
+      back={{ to: "/", label: "Home" }}
       title="Attendance"
       glyph={AttendanceGlyph}
       summary="Check in at rehearsals and see who was there, without paper registers."
       plans={[
-        "Quick check-in at each rehearsal",
+        "Tuesday and Friday rehearsals set up by themselves",
+        "Quick check-in at each rehearsal, with a QR code later",
         "Your own attendance record",
-        "Drive heads see their drive's attendance",
+        "Drive heads take their drive's register and add extra sessions",
         "Reports for the executives",
       ]}
     />

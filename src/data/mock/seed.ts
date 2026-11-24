@@ -65,6 +65,8 @@ export const SEED_VERSION = 6;
 
 /** Demo credentials, shown on the sign-in screen in development builds only. */
 export const DEMO_PIN = "1234";
+/** Officers (HIS-001 to HIS-003) sign in with a 6-digit officer PIN. */
+export const DEMO_OFFICER_PIN = "258036";
 export const DEMO_OFFICER_PASSWORD = "Theatre2026";
 export const DEMO_OFFICER_CODE = "246810";
 
@@ -162,7 +164,7 @@ export function createSeed(today: IsoDate): MockDb {
     };
     members.push(member);
     credentials[member.id] = {
-      pin: member.isActivated ? DEMO_PIN : null,
+      pin: member.isActivated ? (member.role === "member" ? DEMO_PIN : DEMO_OFFICER_PIN) : null,
       failedAttempts: member.isLocked ? 5 : 0,
       setupCode: n === 23 ? "482913" : null,
       setupCodeExpiresAt: n === 23 ? at("2027-01-31", "23:59") : null,

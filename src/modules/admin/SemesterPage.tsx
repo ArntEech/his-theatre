@@ -24,7 +24,8 @@ export function SemesterPage() {
   const [weekId, setWeekId] = useState<string | null>(null);
   const s = semester.data;
   const week = s?.weeks.find((w) => w.id === weekId) ?? null;
-  // Any officer can name a week and switch its dues; rates and dates are the Director's.
+  // Any officer can name a week, switch its dues, start a semester and change its name and dates.
+  // Rates and closing a semester are the Director's.
   const director = isDirector(me);
 
   return (
@@ -77,18 +78,16 @@ export function SemesterPage() {
               />
             ))}
           </ListSection>
+          <DetailsForm key={`${s.id}-${s.startsOn}-${s.endsOn}-${s.name}`} semester={s} />
           {director ? (
-            <>
-              <RatesForm
-                key={`rates-${s.rates.map((r) => r.weeklyAmount).join("-")}`}
-                semester={s}
-              />
-              <DetailsForm key={`${s.id}-${s.startsOn}-${s.endsOn}-${s.name}`} semester={s} />
-            </>
+            <RatesForm
+              key={`rates-${s.rates.map((r) => r.weeklyAmount).join("-")}`}
+              semester={s}
+            />
           ) : (
             <ListSection
               header="Weekly Rates"
-              footer="Only the Director can change rates and semester dates."
+              footer="Only the Director can change rates and close a semester."
             >
               {s.rates.map((r) => (
                 <ListRow
@@ -111,7 +110,7 @@ export function SemesterPage() {
             trailing={x.isClosed ? "Closed" : x.id === s?.id ? "Current" : "Open"}
           />
         ))}
-        {director && (
+        {me && (
           <ListRow
             leading={<IconTile icon={CalendarPlus} color="blue" />}
             title="Start a New Semester"

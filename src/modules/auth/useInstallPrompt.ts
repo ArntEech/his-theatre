@@ -13,28 +13,51 @@ if (typeof window !== "undefined") {
   });
 }
 
-/** Android/desktop install prompt plus iOS detection for "Add to Home Screen" instructions. */
+/** Which install steps fit this phone or computer. */
+export type InstallPlatform = "ios-safari" | "ios-other" | "android" | "desktop";
+
+function detectPlatform(): InstallPlatform {
+  if (typeof navigator === "undefined") return "desktop";
+  const ua = navigator.userAgent;
+  // iPadOS reports itself as a Mac; touch support gives it away.
+  const ios = /iphone|ipad|ipod/i.test(ua) || (/macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+  if (ios) return /crios|fxios|edgios|opios/i.test(ua) ? "ios-other" : "ios-safari";
+  if (/android/i.test(ua)) return "android";
+  return "desktop";
+}
+
+/**
+ * Installing the app on the home screen. Android and computers can show the browser's own
+ * install prompt; iPhones can't (Apple doesn't allow it), so they get step-by-step instructions.
+ */
 export function useInstallPrompt() {
   const [canPrompt, setCanPrompt] = useState(Boolean(deferred));
   const standalone =
     typeof window !== "undefined" &&
     (window.matchMedia("(display-mode: standalone)").matches ||
       (navigator as Navigator & { standalone?: boolean }).standalone === true);
-  const isIos = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const platform = detectPlatform();
 
   useEffect(() => {
     const onPrompt = () => setCanPrompt(true);
+    const onInstalled = () => setCanPrompt(false);
     window.addEventListener("beforeinstallprompt", onPrompt);
-    return () => window.removeEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
   }, []);
 
-  async function install() {
-    if (!deferred) return;
+  /** Shows the browser's install prompt. Returns false if this browser can't. */
+  async function install(): Promise<boolean> {
+    if (!deferred) return false;
     await deferred.prompt();
-    await deferred.userChoice;
+    const choice = await deferred.userChoice;
     deferred = null;
     setCanPrompt(false);
+    return choice.outcome === "accepted";
   }
 
-  return { standalone, isIos, canPrompt, install };
+  return { standalone, platform, isIos: platform.startsWith("ios"), canPrompt, install };
 }

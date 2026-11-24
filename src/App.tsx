@@ -5,12 +5,19 @@ import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persist
 import { usesLiveData } from "@/lib/env";
 import { ApiError } from "@/data/types";
 import { FlashProvider } from "@/components/Flash";
+import { LiveUpdates } from "@/components/LiveUpdates";
 import { AppShell, BareShell } from "@/components/AppShell";
 import { RedirectIfSignedIn, RequireAdmin, RequireAuth } from "@/components/guards";
 import { SignInPage } from "@/modules/auth/SignInPage";
 import { ActivatePage } from "@/modules/auth/ActivatePage";
-import { OfficerSignInPage } from "@/modules/auth/OfficerSignInPage";
 import { ProfilePage } from "@/modules/auth/ProfilePage";
+import { SettingsPage } from "@/modules/settings/SettingsPage";
+import { PersonalizationPage } from "@/modules/settings/PersonalizationPage";
+import { DevicesPage } from "@/modules/settings/DevicesPage";
+import { DataPage } from "@/modules/settings/DataPage";
+import { LogOutPage } from "@/modules/settings/LogOutPage";
+import { OfficerPinPage } from "@/modules/settings/OfficerPinPage";
+import { FaqPage, GuidePage, PrivacyPage } from "@/modules/settings/HelpPages";
 import { HomePage } from "@/modules/dues/HomePage";
 import { DuesPage } from "@/modules/dues/DuesPage";
 import { AnnouncementsPage, AttendancePage } from "@/modules/soon/ComingSoonPage";
@@ -71,12 +78,13 @@ export default function App() {
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{ persister, maxAge: WEEK, buster: usesLiveData ? "live-1" : "demo-3" }}
+      persistOptions={{ persister, maxAge: WEEK, buster: usesLiveData ? "live-2" : "demo-4" }}
       // The saved copy shows instantly; then everything is fetched fresh, so a refresh always
       // brings the latest changes (a renamed week, a new payment). Offline, the saved copy stays.
       onSuccess={() => queryClient.invalidateQueries()}
     >
       <FlashProvider>
+        <LiveUpdates />
         <BrowserRouter basename={basename}>
           <Routes>
             <Route
@@ -88,7 +96,8 @@ export default function App() {
             >
               <Route path="signin" element={<SignInPage />} />
               <Route path="activate" element={<ActivatePage />} />
-              <Route path="officer" element={<OfficerSignInPage />} />
+              {/* Officers now sign in on the main screen with their 6-digit PIN. */}
+              <Route path="officer" element={<Navigate to="/signin" replace />} />
             </Route>
 
             <Route
@@ -103,6 +112,15 @@ export default function App() {
               <Route path="attendance" element={<AttendancePage />} />
               <Route path="announcements" element={<AnnouncementsPage />} />
               <Route path="profile" element={<ProfilePage />} />
+              <Route path="settings" element={<SettingsPage />} />
+              <Route path="settings/personalization" element={<PersonalizationPage />} />
+              <Route path="settings/devices" element={<DevicesPage />} />
+              <Route path="settings/data" element={<DataPage />} />
+              <Route path="settings/logout" element={<LogOutPage />} />
+              <Route path="settings/officer-pin" element={<OfficerPinPage />} />
+              <Route path="settings/guide" element={<GuidePage />} />
+              <Route path="settings/faq" element={<FaqPage />} />
+              <Route path="settings/privacy" element={<PrivacyPage />} />
               <Route path="admin">
                 <Route
                   index
