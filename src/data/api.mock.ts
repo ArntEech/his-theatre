@@ -1723,13 +1723,16 @@ function markProblem(me: Member, r: Rehearsal): string | null {
   if (findSemester(r.semesterId).isClosed) return "This semester is closed.";
   if (r.isCancelled) return "This rehearsal was cancelled.";
   if (r.heldOn > t) return "You can take attendance on the day of the rehearsal.";
-  if (me.role === "super_admin" && hasOfficerPin(me)) return null;
-  if (isOfficerNow(me)) {
-    const dow = (parseIsoDate(r.heldOn).getUTCDay() + 6) % 7;
-    return t <= addDays(r.heldOn, 6 - dow) ? null : "Attendance for that week is closed. Ask the Director to change it.";
-  }
-  if (ledDrives(me).length) return t === r.heldOn ? null : "Drive heads can mark attendance only on the day. Ask an officer to change it.";
+  if (isOfficerNow(me) || ledDrives(me).length) return null;
   return "Only officers and drive heads take attendance.";
+}
+
+/** On the roll for a rehearsal: dues started by that week, not left. */
+function onRoll(m: Member, r: Rehearsal): boolean {
+  const ms = db.memberSemesters.find((x) => x.memberId === m.id && x.semesterId === r.semesterId);
+  if (!ms || !m.isActive || (m.leftOn && m.leftOn < r.heldOn)) return false;
+  const start = weeksOf(r.semesterId).find((w) => w.weekNo === ms.startWeekNo)?.weekStart;
+  return !start || r.heldOn >= start;
 }
 
 function findRehearsal(id: string): Rehearsal {
@@ -1778,7 +1781,7 @@ export async function getRollCall(rehearsalId: string): Promise<RollCallEntry[]>
     .map((ms) => findMember(ms.memberId))
     .filter((m) => {
       const marked = c.attendance.some((a) => a.rehearsalId === r.id && a.memberId === m.id);
-      return marked || (m.isActive && (!m.leftOn || m.leftOn >= r.heldOn));
+      return marked || onRoll(m, r);
     })
     .map((m) => {
       const a = c.attendance.find((x) => x.rehearsalId === r.id && x.memberId === m.id);
@@ -1807,8 +1810,8 @@ export async function markAttendance(rehearsalId: string, marks: AttendanceMarkI
   let changed = 0;
   for (const m of marks) {
     const member = db.members.find((x) => x.id === m.memberId);
-    if (!member?.isActive) continue;
     const i = c.attendance.findIndex((a) => a.rehearsalId === r.id && a.memberId === m.memberId);
+    if (!member || (!onRoll(member, r) && i < 0)) continue;
     if (m.status === null) {
       if (i >= 0) {
         c.attendance.splice(i, 1);

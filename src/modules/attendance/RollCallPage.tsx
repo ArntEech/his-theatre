@@ -5,7 +5,6 @@ import { decideExcuse, markAttendance } from "@/data/api";
 import {
   useApiMutation,
   useAttendanceAccess,
-  useCurrentMember,
   useCurrentSemester,
   useRehearsals,
   useRollCall,
@@ -18,7 +17,7 @@ import { SearchField, SelectField } from "@/components/Field";
 import { ListItem, ListRow, ListSection } from "@/components/List";
 import { useFlash } from "@/components/Flash";
 import { ContentUnavailable, ErrorNotice, InlineError, LoadingBlock } from "@/components/States";
-import { addDays, formatDay, mondayOf } from "@/lib/dates";
+import { addDays, formatDay } from "@/lib/dates";
 import { nextStatus } from "@/lib/attendance";
 import { enqueue, pendingFor } from "@/lib/attendanceQueue";
 import { isOnline, useOnlineStatus } from "@/lib/online";
@@ -38,20 +37,15 @@ export function RollCallPage() {
   const [acting, setActing] = useState<Rehearsal | null>(null);
   const t = s?.today ?? "";
   const acc = access.data;
-  const { data: me } = useCurrentMember();
-  // The Director may correct any rehearsal while the semester is open.
-  const director = me?.role === "super_admin";
 
-  // Which rehearsals this person may mark now.
+  // Any rehearsal from the start of the semester up to today, like dues for past weeks.
+  // Drive heads see everyone's rehearsals plus their own drive's extras.
   const markable = useMemo(() => {
     if (!acc || !rehearsals.data) return [];
-    const weekStart = mondayOf(t);
-    return rehearsals.data.filter((r) => {
-      if (r.isCancelled || r.heldOn > t) return false;
-      if (acc.isOfficer) return director || r.heldOn >= weekStart;
-      return r.heldOn === t;
-    });
-  }, [acc, rehearsals.data, t, director]);
+    return rehearsals.data.filter(
+      (r) => !r.isCancelled && r.heldOn <= t && (!r.drive || acc.isOfficer || acc.ledDrives.includes(r.drive)),
+    );
+  }, [acc, rehearsals.data, t]);
 
   const relevant = (r: Rehearsal) => !r.drive || acc?.isOfficer || acc?.ledDrives.includes(r.drive);
   const fallback =
@@ -109,12 +103,8 @@ export function RollCallPage() {
             <Roll key={selected.id} rehearsal={selected} myDrives={[...new Set([...acc.ledDrives, ...acc.myDrives])]} />
           ) : (
             <ContentUnavailable
-              title="No Rehearsal Today"
-              description={
-                acc.isOfficer
-                  ? "There's nothing to mark this week yet. Add a rehearsal if one is happening."
-                  : "Drive heads take attendance on the day of a rehearsal. Add one for your drive if it's happening."
-              }
+              title="Nothing to Mark Yet"
+              description="Rehearsals from the start of the semester up to today appear here. Add one if a rehearsal is happening."
             />
           )}
 
