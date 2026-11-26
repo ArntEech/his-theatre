@@ -36,6 +36,8 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,html,woff2,png,webp,svg}"],
         navigateFallback: "index.html",
         cleanupOutdatedCaches: true,
+        // Shows phone notifications (public/push-handler.js).
+        importScripts: ["push-handler.js"],
         // Never cache calls to the database; the app keeps its own offline copy of what you last saw.
         navigateFallbackDenylist: [/^\/api\//],
         // Fonts chosen in Profile → Appearance: keep a copy so they still show offline.

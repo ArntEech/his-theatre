@@ -1,5 +1,6 @@
 import { NavLink } from "react-router";
 import { cx } from "@/lib/cx";
+import { useUnreadNews } from "@/data/queries";
 import {
   AdminGlyph,
   AnnouncementsGlyph,
@@ -26,9 +27,8 @@ export function mainNav(showAdmin: boolean): NavItem[] {
     { to: "/", label: "Home", glyph: HomeGlyph, end: true },
     { to: "/dues", label: "Dues", glyph: DuesGlyph },
     ...(showAdmin ? [{ to: "/admin", label: "Admin", glyph: AdminGlyph }] : []),
-    // In development: their pages say "Coming soon" for now.
-    { to: "/attendance", label: "Attendance", glyph: AttendanceGlyph, soon: true },
-    { to: "/announcements", label: "Announcements", short: "News", glyph: AnnouncementsGlyph, soon: true },
+    { to: "/attendance", label: "Attendance", glyph: AttendanceGlyph },
+    { to: "/announcements", label: "Announcements", short: "News", glyph: AnnouncementsGlyph },
     { to: "/settings", label: "Settings", glyph: SettingsGlyph },
   ];
 }
@@ -54,6 +54,7 @@ export function phoneTabs(showAdmin: boolean): NavItem[] {
  * selected tab is tinted gold. Tablets and laptops use the sidebar instead.
  */
 export function TabBar({ showAdmin }: { showAdmin: boolean }) {
+  const unread = useUnreadNews().data ?? 0;
   return (
     <nav
       aria-label="Main"
@@ -75,7 +76,10 @@ export function TabBar({ showAdmin }: { showAdmin: boolean }) {
             >
               {({ isActive }) => (
                 <>
-                  <Glyph filled={isActive} className="size-[1.45rem] shrink-0" />
+                  <span className="relative">
+                    <Glyph filled={isActive} className="size-[1.45rem] shrink-0" />
+                    {to === "/announcements" && unread > 0 && !isActive && <UnreadDot count={unread} />}
+                  </span>
                   <span aria-hidden className="text-[0.6875rem] leading-tight font-semibold">
                     {short ?? label}
                   </span>
@@ -86,5 +90,20 @@ export function TabBar({ showAdmin }: { showAdmin: boolean }) {
         ))}
       </ul>
     </nav>
+  );
+}
+
+/** Red dot with the number of new posts on the News tab. */
+export function UnreadDot({ count, className }: { count: number; className?: string }) {
+  return (
+    <span
+      aria-label={`${count} new`}
+      className={cx(
+        "absolute -top-1 -right-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-behind px-1 text-[0.625rem] leading-none font-bold text-white ring-2 ring-[var(--bar,white)]",
+        className,
+      )}
+    >
+      {count > 9 ? "9+" : count}
+    </span>
   );
 }

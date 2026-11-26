@@ -9,7 +9,9 @@ import {
   unlockMember,
   updateMember,
 } from "@/data/api";
-import { useApiMutation, useCurrentMember, useCurrentSemester, useMember } from "@/data/queries";
+import { useApiMutation, useCurrentMember, useCurrentSemester, useMember, useMemberAttendance } from "@/data/queries";
+import { AttendanceCalendar, Legend } from "@/modules/attendance/AttendanceBits";
+import { percent } from "@/lib/attendance";
 import type {
   Member,
   JoinedAs,
@@ -137,6 +139,10 @@ export function MemberDetailPage() {
       )}
 
       {dues && semester.data && <Schedule weeks={dues.schedule} today={semester.data.today} />}
+
+      {semester.data && (
+        <MemberAttendanceSection memberId={member.id} semesterId={semester.data.id} today={semester.data.today} />
+      )}
 
       <ListSection header="Account">
         <ValueRow label="Phone" value={member.phone || "Not given"} />
@@ -701,5 +707,24 @@ function LeaveSheet({ open, onClose, member, today }: SheetProps & { today: stri
         </Button>
       </form>
     </Sheet>
+  );
+}
+
+/** Their attendance this semester: rate, streak and the calendar. */
+function MemberAttendanceSection({ memberId, semesterId, today }: { memberId: string; semesterId: string; today: string }) {
+  const a = useMemberAttendance(memberId, semesterId);
+  if (a.isError) return <ErrorNotice error={a.error} onRetry={() => a.refetch()} />;
+  if (!a.data) return null;
+  const s = a.data.summary;
+  return (
+    <ListSection
+      padded
+      header="Attendance"
+      aside={<span className="text-subhead text-label-2 tnum">{percent(s.rate)}</span>}
+      footer={`${s.attended} of ${s.counted} rehearsals · ${s.late} late · ${s.excused} excused · streak ${s.streak}. Correct a mark from Take Attendance.`}
+    >
+      <AttendanceCalendar days={a.data.days} today={today} />
+      <Legend />
+    </ListSection>
   );
 }

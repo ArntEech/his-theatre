@@ -20,7 +20,11 @@ import { OfficerPinPage } from "@/modules/settings/OfficerPinPage";
 import { FaqPage, GuidePage, PrivacyPage } from "@/modules/settings/HelpPages";
 import { HomePage } from "@/modules/dues/HomePage";
 import { DuesPage } from "@/modules/dues/DuesPage";
-import { AnnouncementsPage, AttendancePage } from "@/modules/soon/ComingSoonPage";
+import { AttendancePage } from "@/modules/attendance/AttendancePage";
+import { RollCallPage } from "@/modules/attendance/RollCallPage";
+import { AttendanceAdminPage } from "@/modules/attendance/AttendanceAdminPage";
+import { NewsPage } from "@/modules/news/NewsPage";
+import { NotificationsPage } from "@/modules/settings/NotificationsPage";
 import { AdminHomePage } from "@/modules/admin/AdminHomePage";
 import { TodayPage } from "@/modules/admin/TodayPage";
 import { MembersPage } from "@/modules/admin/MembersPage";
@@ -110,10 +114,12 @@ export default function App() {
               <Route index element={<HomePage />} />
               <Route path="dues" element={<DuesPage />} />
               <Route path="attendance" element={<AttendancePage />} />
-              <Route path="announcements" element={<AnnouncementsPage />} />
+              <Route path="attendance/take" element={<RollCallPage />} />
+              <Route path="announcements" element={<NewsPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="settings/personalization" element={<PersonalizationPage />} />
+              <Route path="settings/notifications" element={<NotificationsPage />} />
               <Route path="settings/devices" element={<DevicesPage />} />
               <Route path="settings/data" element={<DataPage />} />
               <Route path="settings/logout" element={<LogOutPage />} />
@@ -143,6 +149,7 @@ export default function App() {
                   ["reports", <ReportsPage />],
                   ["semester", <SemesterPage />],
                   ["audit", <AuditPage />],
+                  ["attendance", <AttendanceAdminPage />],
                 ].map(([path, element]) => (
                   <Route
                     key={path as string}

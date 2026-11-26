@@ -10,7 +10,6 @@ import {
 } from "@/data/queries";
 import type { PaymentRow } from "@/data/types";
 import { PageHeader } from "@/components/PageHeader";
-import { AttendanceGlyph } from "@/components/TabIcons";
 import { SummaryCard } from "@/components/Card";
 import { IconTile, ListRow, ListSection } from "@/components/List";
 import { BigMoney } from "@/components/Money";
@@ -20,6 +19,7 @@ import { formatDateLong, greeting } from "@/lib/dates";
 import { DuesCard } from "./DuesCard";
 import { PaymentList } from "./PaymentList";
 import { ReceiptSheet } from "./ReceiptSheet";
+import { AttendanceCard } from "@/modules/attendance/AttendanceCard";
 
 export function HomePage() {
   const { data: me } = useCurrentMember();
@@ -141,32 +141,6 @@ function OfficerPinPrompt() {
         <span className="block text-headline font-semibold">Set Your Officer PIN</span>
         <span className="block text-subhead text-label-2">
           Officers use a 6-digit PIN. Choose yours to open the officer screens.
-        </span>
-      </span>
-      <ChevronRight aria-hidden className="size-5 shrink-0 text-label-3" />
-    </Link>
-  );
-}
-
-/** Attendance lives on Home (it isn't a tab). It's still being built. */
-function AttendanceCard() {
-  return (
-    <Link
-      to="/attendance"
-      className="flex items-center gap-3 rounded-[1rem] bg-cell p-4 transition-opacity active:opacity-70"
-    >
-      <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-[0.75rem] bg-tint/18 text-tint-text">
-        <AttendanceGlyph filled className="size-6" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span className="text-headline font-semibold">Attendance</span>
-          <span className="rounded-full bg-fill px-2 py-0.5 text-caption2 font-semibold text-label-2">
-            Soon
-          </span>
-        </span>
-        <span className="block text-subhead text-label-2">
-          Check in at Tuesday and Friday rehearsals.
         </span>
       </span>
       <ChevronRight aria-hidden className="size-5 shrink-0 text-label-3" />

@@ -6,7 +6,7 @@
 // The real server must enforce the same permission rules that are checked below.
 
 import { calculateDues, buildSchedule, duesStatus, nextDueWeek } from "@/lib/dues";
-import { addDays, localToday, mondayOf } from "@/lib/dates";
+import { addDays, formatDay, localToday, mondayOf, parseIsoDate } from "@/lib/dates";
 import { formatCedi } from "@/lib/money";
 import { isDemo } from "@/lib/env";
 import { normalizeMemberCode } from "@/lib/member-code";
@@ -58,7 +58,30 @@ import {
   SetupCodeListItem,
 } from "./types";
 import { EMPTY_PROFILE } from "./types";
-import { createSeed, SEED_VERSION, type MockDb } from "./mock/seed";
+import { createSeed, SEED_VERSION, type MockCommunity, type MockDb, type MockPost } from "./mock/seed";
+import {
+  NOTIFY_DEFAULTS,
+  type AttendanceAccess,
+  type AttendanceMarkInput,
+  type AttendanceOverviewRow,
+  type AttendanceTotals,
+  type DriveHead,
+  type MyAttendance,
+  type MySettings,
+  type NewRehearsalInput,
+  type NewsAccess,
+  type PendingExcuse,
+  type PersonRef,
+  type Post,
+  type PostComment,
+  type PostInput,
+  type PostUpdate,
+  type PushSubscriptionInput,
+  type Rehearsal,
+  type ReportedComment,
+  type RollCallEntry,
+} from "./community";
+import { buildDays, drivesOf, missedInARow, nextRehearsal, summarize } from "@/lib/attendance";
 
 /* ------------------------------------------------------------------ */
 /* Mock plumbing                                                        */
@@ -1481,4 +1504,951 @@ export async function devResetMockData(): Promise<void> {
   db = createSeed(today());
   db.session.memberId = memberId;
   persist();
+}
+
+/* ------------------------------------------------------------------ */
+/* Attendance, drive heads, News, settings (demo)                       */
+/* ------------------------------------------------------------------ */
+
+function community(): MockCommunity {
+  if (!db.community) {
+    db.community = {
+      rehearsals: [],
+      attendance: [],
+      excuses: [],
+      driveHeads: [],
+      posts: [],
+      images: {},
+      likes: [],
+      views: [],
+      comments: [],
+      reports: [],
+      settings: {},
+      push: [],
+    };
+    seedCommunity(db.community);
+    persist();
+  }
+  return db.community;
+}
+
+function memberDrives(m: Member): string[] {
+  return drivesOf(m.drive, m.profile.driveInterests);
+}
+
+function ledDrives(m: Member): string[] {
+  return community()
+    .driveHeads.filter((h) => h.memberId === m.id)
+    .map((h) => h.drive)
+    .sort();
+}
+
+function isOfficerNow(m: Member) {
+  return isAdmin(m) && hasOfficerPin(m);
+}
+
+/** Tuesdays and Thursdays in weeks with dues; days that no longer fit go unless marked. */
+function syncRehearsals(semesterId: string) {
+  const c = community();
+  const s = db.semesters.find((x) => x.id === semesterId);
+  if (!s || s.isClosed) return;
+  const weeks = weeksOf(semesterId).filter((w) => w.counts);
+  const fits = (d: IsoDate) => {
+    const dow = parseIsoDate(d).getUTCDay();
+    return (
+      (dow === 2 || dow === 4) &&
+      d >= s.startsOn &&
+      d <= s.endsOn &&
+      weeks.some((w) => d >= w.weekStart && d < addDays(w.weekStart, 7))
+    );
+  };
+  for (let d = s.startsOn; d <= s.endsOn; d = addDays(d, 1)) {
+    if (fits(d) && !c.rehearsals.some((r) => r.semesterId === s.id && r.kind === "regular" && r.heldOn === d)) {
+      c.rehearsals.push({
+        id: `reh-${s.id}-${d}`,
+        semesterId: s.id,
+        heldOn: d,
+        kind: "regular",
+        drive: null,
+        title: "",
+        startsAt: null,
+        isCancelled: false,
+        cancelReason: null,
+        rollTaken: false,
+      });
+    }
+  }
+  c.rehearsals = c.rehearsals.filter(
+    (r) =>
+      r.semesterId !== s.id ||
+      r.kind !== "regular" ||
+      fits(r.heldOn) ||
+      c.attendance.some((a) => a.rehearsalId === r.id),
+  );
+}
+
+function seedCommunity(c: MockCommunity) {
+  const t = today();
+  const sem = currentSemesterRecord();
+  const byCode = (code: string) => db.members.find((m) => m.memberCode === code);
+  const efua = byCode("HIS-004");
+  const nana = byCode("HIS-007");
+  if (efua) c.driveHeads.push({ memberId: efua.id, drive: efua.drive });
+  if (nana) c.driveHeads.push({ memberId: nana.id, drive: nana.drive });
+  if (sem) {
+    db.community = c;
+    syncRehearsals(sem.id);
+    // Past rehearsals: most people came, a few were late or away.
+    const roll = db.memberSemesters.filter((ms) => ms.semesterId === sem.id);
+    const marker = byCode("HIS-002")?.id ?? db.members[0].id;
+    c.rehearsals
+      .filter((r) => r.semesterId === sem.id && r.heldOn < t)
+      .forEach((r, ri) => {
+        r.rollTaken = true;
+        roll.forEach((ms, mi) => {
+          const m = db.members.find((x) => x.id === ms.memberId);
+          if (!m || (m.leftOn && r.heldOn > m.leftOn)) return;
+          const n = (ri * 7 + mi * 13) % 20;
+          if (n >= 17) return; // not ticked: counts as absent
+          const status = n === 16 ? "excused" : n >= 14 ? "late" : "present";
+          c.attendance.push({ rehearsalId: r.id, memberId: m.id, status, markedBy: marker, markedAt: `${r.heldOn}T17:30:00.000Z` });
+        });
+      });
+  }
+  const dir = byCode("HIS-001");
+  const fs = byCode("HIS-002");
+  const at = (daysAgo: number, time = "09:00:00") => `${addDays(t, -daysAgo)}T${time}.000Z`;
+  const post = (p: Partial<MockPost> & { id: string; body: string }): MockPost => ({
+    authorId: null,
+    authorLabel: "His Theatre",
+    kind: "post",
+    tags: [],
+    drive: null,
+    urgent: false,
+    eventAt: null,
+    commentsOff: false,
+    pinnedAt: null,
+    birthdayOn: null,
+    birthdayMembers: [],
+    createdAt: at(1),
+    editedAt: null,
+    ...p,
+  });
+  c.posts.push(
+    post({
+      id: "post-1",
+      authorId: dir?.id ?? null,
+      authorLabel: "Director",
+      body: "Christmas production auditions this Thursday after rehearsal. Come with a 1-minute monologue. Everyone is welcome.",
+      tags: ["Event", "Rehearsal"],
+      pinnedAt: at(0, "08:00:00"),
+      eventAt: `${addDays(t, 2)}T17:00:00.000Z`,
+      createdAt: at(0, "08:00:00"),
+    }),
+    post({
+      id: "post-2",
+      authorId: fs?.id ?? null,
+      authorLabel: "Financial Secretary",
+      body: "Dues for this week are now due. Pay in cash at rehearsal or by MoMo, and check your balance on the Dues tab.",
+      tags: ["Dues"],
+      createdAt: at(0, "06:30:00"),
+    }),
+    post({
+      id: "post-3",
+      authorId: efua?.id ?? null,
+      authorLabel: `Head, ${efua?.drive ?? "Tribe of Judah"}`,
+      body: "Extra practice on Saturday at 3 PM in the auditorium. Bring your scripts.",
+      tags: ["Boosters"],
+      drive: efua?.drive ?? "Tribe of Judah",
+      commentsOff: true,
+      createdAt: at(1, "19:10:00"),
+    }),
+    post({
+      id: "post-4",
+      authorId: dir?.id ?? null,
+      authorLabel: "Director",
+      body: "Welcome to His Theatre on the app! Dues, attendance and news are all here now. Pull down on any screen to refresh.",
+      tags: ["General"],
+      createdAt: at(3, "10:00:00"),
+    }),
+  );
+  const people = db.members.filter((m) => m.isActive).slice(3, 15);
+  people.forEach((m, i) => {
+    c.views.push({ postId: "post-1", memberId: m.id, at: at(0, "09:00:00") });
+    if (i % 2 === 0) c.likes.push({ postId: "post-1", memberId: m.id, at: at(0, "09:10:00") });
+    if (i < 8) c.views.push({ postId: "post-2", memberId: m.id, at: at(0, "07:00:00") });
+    if (i % 3 === 0) c.likes.push({ postId: "post-4", memberId: m.id, at: at(3, "11:00:00") });
+  });
+  if (people[2])
+    c.comments.push({ id: "com-1", postId: "post-2", memberId: people[2].id, parentId: null, body: "Paid mine by MoMo this morning", createdAt: at(0, "07:05:00"), editedAt: null });
+  if (fs)
+    c.comments.push({ id: "com-2", postId: "post-2", memberId: fs.id, parentId: "com-1", body: "Received, thank you!", createdAt: at(0, "07:20:00"), editedAt: null });
+  if (people[4])
+    c.comments.push({ id: "com-3", postId: "post-1", memberId: people[4].id, parentId: null, body: "Can we do a duet piece instead?", createdAt: at(0, "08:40:00"), editedAt: null });
+}
+
+function rehearsalDaysFor(member: Member, semesterId: string): MyAttendance {
+  syncRehearsals(semesterId);
+  const c = community();
+  const ms = db.memberSemesters.find((x) => x.memberId === member.id && x.semesterId === semesterId);
+  const start = ms ? (weeksOf(semesterId).find((w) => w.weekNo === ms.startWeekNo)?.weekStart ?? null) : null;
+  const ids = new Set(c.rehearsals.filter((r) => r.semesterId === semesterId).map((r) => r.id));
+  const days = buildDays(
+    c.rehearsals.filter((r) => ids.has(r.id)),
+    new Map(
+      c.attendance
+        .filter((a) => a.memberId === member.id && ids.has(a.rehearsalId))
+        .map((a) => [a.rehearsalId, { status: a.status, markedAt: a.markedAt }]),
+    ),
+    new Map(
+      c.excuses
+        .filter((e) => e.memberId === member.id && ids.has(e.rehearsalId))
+        .map((e) => [e.rehearsalId, { reason: e.reason, status: e.status }]),
+    ),
+    { drives: memberDrives(member), from: start, until: member.leftOn },
+    today(),
+  );
+  return { semesterId, days, summary: summarize(days), next: nextRehearsal(days) };
+}
+
+function requireTaker(): Member {
+  const me = requireMember();
+  if (!isOfficerNow(me) && ledDrives(me).length === 0)
+    throw new ApiError("Only officers and drive heads take attendance.", "forbidden");
+  return me;
+}
+
+function markProblem(me: Member, r: Rehearsal): string | null {
+  const t = today();
+  if (findSemester(r.semesterId).isClosed) return "This semester is closed.";
+  if (r.isCancelled) return "This rehearsal was cancelled.";
+  if (r.heldOn > t) return "You can take attendance on the day of the rehearsal.";
+  if (me.role === "super_admin" && hasOfficerPin(me)) return null;
+  if (isOfficerNow(me)) {
+    const dow = (parseIsoDate(r.heldOn).getUTCDay() + 6) % 7;
+    return t <= addDays(r.heldOn, 6 - dow) ? null : "Attendance for that week is closed. Ask the Director to change it.";
+  }
+  if (ledDrives(me).length) return t === r.heldOn ? null : "Drive heads can mark attendance only on the day. Ask an officer to change it.";
+  return "Only officers and drive heads take attendance.";
+}
+
+function findRehearsal(id: string): Rehearsal {
+  const r = community().rehearsals.find((x) => x.id === id);
+  if (!r) throw new ApiError("Rehearsal not found.", "not_found");
+  return r;
+}
+
+export async function getAttendanceAccess(): Promise<AttendanceAccess> {
+  await delay();
+  const me = requireMember();
+  const led = ledDrives(me);
+  const isOfficer = isOfficerNow(me);
+  return { canTake: isOfficer || led.length > 0, isOfficer, ledDrives: led, myDrives: memberDrives(me) };
+}
+
+export async function getMyAttendance(semesterId: string): Promise<MyAttendance> {
+  await delay();
+  return clone(rehearsalDaysFor(requireMember(), semesterId));
+}
+
+export async function getMemberAttendance(memberId: string, semesterId: string): Promise<MyAttendance> {
+  await delay();
+  requireAdmin();
+  return clone(rehearsalDaysFor(findMember(memberId), semesterId));
+}
+
+export async function listRehearsals(semesterId: string): Promise<Rehearsal[]> {
+  await delay();
+  requireMember();
+  syncRehearsals(semesterId);
+  return clone(
+    community()
+      .rehearsals.filter((r) => r.semesterId === semesterId)
+      .sort((a, b) => a.heldOn.localeCompare(b.heldOn) || (a.startsAt ?? "").localeCompare(b.startsAt ?? "")),
+  );
+}
+
+export async function getRollCall(rehearsalId: string): Promise<RollCallEntry[]> {
+  await delay();
+  requireTaker();
+  const c = community();
+  const r = findRehearsal(rehearsalId);
+  return db.memberSemesters
+    .filter((ms) => ms.semesterId === r.semesterId)
+    .map((ms) => findMember(ms.memberId))
+    .filter((m) => {
+      const marked = c.attendance.some((a) => a.rehearsalId === r.id && a.memberId === m.id);
+      return marked || (m.isActive && (!m.leftOn || m.leftOn >= r.heldOn));
+    })
+    .map((m) => {
+      const a = c.attendance.find((x) => x.rehearsalId === r.id && x.memberId === m.id);
+      const e = c.excuses.find((x) => x.rehearsalId === r.id && x.memberId === m.id);
+      return {
+        memberId: m.id,
+        memberCode: m.memberCode,
+        fullName: m.fullName,
+        drives: memberDrives(m),
+        status: a?.status ?? null,
+        markedByName: a ? memberName(a.markedBy) : null,
+        markedAt: a?.markedAt ?? null,
+        excuse: e ? { reason: e.reason, status: e.status } : null,
+      };
+    })
+    .sort((a, b) => a.fullName.localeCompare(b.fullName));
+}
+
+export async function markAttendance(rehearsalId: string, marks: AttendanceMarkInput[]): Promise<AttendanceTotals> {
+  await delay();
+  const me = requireTaker();
+  const c = community();
+  const r = findRehearsal(rehearsalId);
+  const problem = markProblem(me, r);
+  if (problem) throw new ApiError(problem, "forbidden");
+  let changed = 0;
+  for (const m of marks) {
+    const member = db.members.find((x) => x.id === m.memberId);
+    if (!member?.isActive) continue;
+    const i = c.attendance.findIndex((a) => a.rehearsalId === r.id && a.memberId === m.memberId);
+    if (m.status === null) {
+      if (i >= 0) {
+        c.attendance.splice(i, 1);
+        changed++;
+      }
+    } else if (i < 0 || c.attendance[i].status !== m.status) {
+      const row = { rehearsalId: r.id, memberId: m.memberId, status: m.status, markedBy: me.id, markedAt: now() };
+      if (i >= 0) c.attendance[i] = row;
+      else c.attendance.push(row);
+      changed++;
+    }
+  }
+  const rows = c.attendance.filter((a) => a.rehearsalId === r.id);
+  r.rollTaken = rows.length > 0;
+  const totals = {
+    present: rows.filter((a) => a.status === "present").length,
+    late: rows.filter((a) => a.status === "late").length,
+    excused: rows.filter((a) => a.status === "excused").length,
+    absent: rows.filter((a) => a.status === "absent").length,
+    changed,
+  };
+  if (changed)
+    audit(
+      me,
+      "insert",
+      "attendance",
+      `took attendance for ${formatDay(r.heldOn)}${r.drive ? ` (${r.drive})` : ""}: ${totals.present} present, ${totals.late} late, ${totals.excused} excused, ${totals.absent} absent`,
+    );
+  persist();
+  return totals;
+}
+
+function requireRehearsalPower(me: Member, drive: string | null) {
+  if (isOfficerNow(me)) return;
+  if (drive && ledDrives(me).includes(drive)) return;
+  if (ledDrives(me).length)
+    throw new ApiError("Drive heads can only add or cancel rehearsals for their own drive.", "forbidden");
+  throw new ApiError("Only officers and drive heads can do that.", "forbidden");
+}
+
+export async function addRehearsal(input: NewRehearsalInput): Promise<string> {
+  await delay();
+  const me = requireMember();
+  const drive = input.drive?.trim() || null;
+  requireRehearsalPower(me, drive);
+  if (input.heldOn < today()) throw new ApiError("Choose today or a later date.", "invalid");
+  const s = db.semesters
+    .filter((x) => !x.isClosed && x.startsOn <= input.heldOn && input.heldOn <= x.endsOn)
+    .sort((a, b) => b.startsOn.localeCompare(a.startsOn))[0];
+  if (!s) throw new ApiError("That date isn't in an open semester.", "invalid");
+  const id = nextId("reh");
+  community().rehearsals.push({
+    id,
+    semesterId: s.id,
+    heldOn: input.heldOn,
+    kind: "extra",
+    drive,
+    title: input.title.trim().slice(0, 60),
+    startsAt: input.startsAt,
+    isCancelled: false,
+    cancelReason: null,
+    rollTaken: false,
+  });
+  audit(me, "insert", "rehearsals", `added a rehearsal on ${formatDay(input.heldOn)}${drive ? ` for ${drive}` : ""}`);
+  persist();
+  return id;
+}
+
+export async function cancelRehearsal(id: string, reason: string, cancel = true): Promise<void> {
+  await delay();
+  const me = requireMember();
+  const r = findRehearsal(id);
+  if (r.kind === "regular") {
+    if (!isOfficerNow(me)) throw new ApiError("Only officers can cancel a regular rehearsal.", "forbidden");
+  } else requireRehearsalPower(me, r.drive);
+  if (cancel && r.heldOn < today()) throw new ApiError("That rehearsal has already happened.", "invalid");
+  const was = r.isCancelled;
+  r.isCancelled = cancel;
+  r.cancelReason = cancel ? reason.trim() || null : null;
+  audit(me, "insert", "rehearsals", `${cancel ? "cancelled" : "restored"} the rehearsal on ${formatDay(r.heldOn)}${r.cancelReason ? `: ${r.cancelReason}` : ""}`);
+  if (cancel && !was) {
+    community().posts.push(newMockPost({
+      authorId: me.id,
+      authorLabel: me.position ?? "His Theatre",
+      kind: "notice",
+      body: `Rehearsal cancelled: ${formatDay(r.heldOn)}${r.drive ? ` (${r.drive})` : ""}.${r.cancelReason ? ` ${r.cancelReason}` : ""}`,
+      tags: ["Rehearsal"],
+      drive: r.drive,
+      urgent: true,
+    }));
+  }
+  persist();
+}
+
+export async function requestExcuse(rehearsalId: string, reason: string): Promise<void> {
+  await delay();
+  const me = requireMember();
+  const r = findRehearsal(rehearsalId);
+  if (r.isCancelled) throw new ApiError("Rehearsal not found.", "not_found");
+  if (r.heldOn < today()) throw new ApiError("Ask before the rehearsal, or speak to your drive head.", "invalid");
+  if (reason.trim().length < 3) throw new ApiError("Say briefly why you can't come.", "invalid");
+  const c = community();
+  const e = c.excuses.find((x) => x.rehearsalId === r.id && x.memberId === me.id);
+  if (e && e.status !== "pending") throw new ApiError("Your request was already answered.", "invalid");
+  if (e) e.reason = reason.trim();
+  else c.excuses.push({ rehearsalId: r.id, memberId: me.id, reason: reason.trim(), status: "pending" });
+  persist();
+}
+
+export async function decideExcuse(rehearsalId: string, memberId: string, approve: boolean): Promise<void> {
+  await delay();
+  const me = requireTaker();
+  const c = community();
+  const r = findRehearsal(rehearsalId);
+  const e = c.excuses.find((x) => x.rehearsalId === rehearsalId && x.memberId === memberId);
+  if (!e) throw new ApiError("Request not found.", "not_found");
+  e.status = approve ? "approved" : "declined";
+  if (approve) {
+    const row = { rehearsalId, memberId, status: "excused" as const, markedBy: me.id, markedAt: now() };
+    const i = c.attendance.findIndex((a) => a.rehearsalId === rehearsalId && a.memberId === memberId);
+    if (i >= 0) c.attendance[i] = row;
+    else c.attendance.push(row);
+  }
+  audit(me, "insert", "attendance", `${approve ? "approved" : "declined"} ${memberName(memberId)}'s excuse for ${formatDay(r.heldOn)}`);
+  persist();
+}
+
+export async function getAttendanceOverview(
+  semesterId: string,
+): Promise<{ rows: AttendanceOverviewRow[]; pending: PendingExcuse[] }> {
+  await delay();
+  requireAdmin();
+  syncRehearsals(semesterId);
+  const t = today();
+  const people = db.memberSemesters
+    .filter((ms) => ms.semesterId === semesterId)
+    .map((ms) => findMember(ms.memberId))
+    .filter((m) => m.isActive || m.leftOn);
+  const rows = people.map((m) => {
+    const a = rehearsalDaysFor(m, semesterId);
+    return {
+      memberId: m.id,
+      memberCode: m.memberCode,
+      fullName: m.fullName,
+      drive: m.drive,
+      summary: a.summary,
+      missedInARow: missedInARow(a.days),
+    };
+  });
+  const c = community();
+  const pending = c.excuses
+    .filter((e) => e.status === "pending")
+    .map((e) => ({ e, r: c.rehearsals.find((r) => r.id === e.rehearsalId) }))
+    .filter(({ r }) => r && r.semesterId === semesterId && r.heldOn >= t)
+    .map(({ e, r }) => ({ rehearsalId: e.rehearsalId, heldOn: r!.heldOn, memberId: e.memberId, fullName: memberName(e.memberId), reason: e.reason }))
+    .sort((a, b) => a.heldOn.localeCompare(b.heldOn));
+  return clone({ rows, pending });
+}
+
+export async function listDriveHeads(): Promise<DriveHead[]> {
+  await delay();
+  requireMember();
+  return community()
+    .driveHeads.map((h) => ({ memberId: h.memberId, fullName: memberName(h.memberId), drive: h.drive }))
+    .sort((a, b) => a.drive.localeCompare(b.drive) || a.fullName.localeCompare(b.fullName));
+}
+
+export async function setDriveHead(memberId: string, drive: string, on: boolean): Promise<void> {
+  await delay();
+  const me = requireSuperAdmin();
+  const m = findMember(memberId);
+  const d = drive.trim();
+  if (!d) throw new ApiError("Choose a drive.", "invalid");
+  const c = community();
+  c.driveHeads = c.driveHeads.filter((h) => !(h.memberId === memberId && h.drive === d));
+  if (on) c.driveHeads.push({ memberId, drive: d });
+  audit(me, "insert", "drive_heads", on ? `made ${m.fullName} head of ${d}` : `removed ${m.fullName} as head of ${d}`);
+  persist();
+}
+
+export async function listDrives(): Promise<string[]> {
+  await delay();
+  const me = requireMember();
+  const set = new Set(ledDrives(me));
+  const visible = isOfficerNow(me) ? db.members.filter((m) => m.isActive) : [me];
+  for (const m of visible) for (const d of memberDrives(m)) set.add(d);
+  return [...set].sort();
+}
+
+/* ---------- News ---------- */
+
+function newMockPost(p: Partial<MockPost> & { body: string }): MockPost {
+  return {
+    id: nextId("post"),
+    authorId: null,
+    authorLabel: "His Theatre",
+    kind: "post",
+    tags: [],
+    drive: null,
+    urgent: false,
+    eventAt: null,
+    commentsOff: false,
+    pinnedAt: null,
+    birthdayOn: null,
+    birthdayMembers: [],
+    createdAt: now(),
+    editedAt: null,
+    ...p,
+  };
+}
+
+function canSeePost(me: Member, p: MockPost) {
+  return !p.drive || isOfficerNow(me) || memberDrives(me).includes(p.drive) || ledDrives(me).includes(p.drive);
+}
+
+function findPost(id: string): MockPost {
+  const p = community().posts.find((x) => x.id === id);
+  if (!p) throw new ApiError("Post not found.", "not_found");
+  return p;
+}
+
+function postLabels(me: Member): string[] {
+  const out = new Set<string>();
+  const led = ledDrives(me);
+  if (isOfficerNow(me)) {
+    if (me.position) out.add(me.position);
+    out.add("Officer");
+  }
+  if ((isOfficerNow(me) || led.length) && me.portfolio.trim()) out.add(me.portfolio.trim());
+  for (const d of led) out.add(`Head, ${d}`);
+  return [...out];
+}
+
+function cleanTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of tags) {
+    const t = raw.trim();
+    if (!t || t.length > 24 || seen.has(t.toLowerCase())) continue;
+    seen.add(t.toLowerCase());
+    out.push(t);
+  }
+  return out.slice(0, 5);
+}
+
+function ensureBirthdayPost() {
+  const t = today();
+  const c = community();
+  if (c.posts.some((p) => p.kind === "birthday" && p.birthdayOn === t)) return;
+  const d = parseIsoDate(t);
+  const people = db.members
+    .filter(
+      (m) =>
+        m.isActive &&
+        m.profile.birthDay === d.getUTCDate() &&
+        m.profile.birthMonth === d.getUTCMonth() + 1 &&
+        (c.settings[m.id]?.birthdayPost ?? true),
+    )
+    .sort((a, b) => a.fullName.localeCompare(b.fullName));
+  if (!people.length) return;
+  const names = people.map((p) => p.fullName);
+  const who = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  c.posts.push(
+    newMockPost({
+      kind: "birthday",
+      body: `Happy birthday, ${who}! 🎉 Wishing you a blessed year ahead, from all of us at His Theatre.`,
+      tags: ["Birthday"],
+      birthdayOn: t,
+      birthdayMembers: people.map((p) => p.id),
+      createdAt: `${t}T00:00:00.000Z`,
+    }),
+  );
+  persist();
+}
+
+function toPostView(me: Member, p: MockPost): Post {
+  const c = community();
+  const author = p.authorId ? db.members.find((m) => m.id === p.authorId) : undefined;
+  return {
+    id: p.id,
+    authorId: p.authorId,
+    authorName: author?.fullName ?? "His Theatre",
+    authorLabel: p.authorLabel,
+    authorPhoto: (p.authorId && db.photos?.[p.authorId]) || null,
+    kind: p.kind,
+    body: p.body,
+    tags: p.tags,
+    drive: p.drive,
+    urgent: p.urgent,
+    eventAt: p.eventAt,
+    commentsOff: p.commentsOff,
+    pinned: Boolean(p.pinnedAt),
+    isTodaysBirthday: p.kind === "birthday" && p.birthdayOn === today(),
+    birthdayNames: p.birthdayMembers.map(memberName),
+    imageCount: c.images[p.id]?.length ?? 0,
+    createdAt: p.createdAt,
+    editedAt: p.editedAt,
+    likes: c.likes.filter((l) => l.postId === p.id).length,
+    comments: c.comments.filter((x) => x.postId === p.id).length,
+    views: c.views.filter((v) => v.postId === p.id).length,
+    likedByMe: c.likes.some((l) => l.postId === p.id && l.memberId === me.id),
+    seenByMe: c.views.some((v) => v.postId === p.id && v.memberId === me.id),
+  };
+}
+
+export async function getNewsAccess(): Promise<NewsAccess> {
+  await delay();
+  const me = requireMember();
+  const led = ledDrives(me);
+  const isOfficer = isOfficerNow(me);
+  const drives = isOfficer
+    ? [...new Set(db.members.filter((m) => m.isActive).flatMap(memberDrives))].sort()
+    : led;
+  return {
+    canPost: isOfficer || led.length > 0,
+    isOfficer,
+    isDirector: me.role === "super_admin" && hasOfficerPin(me),
+    labels: postLabels(me),
+    drives,
+  };
+}
+
+export async function getNewsFeed(opts: { before?: string | null; tag?: string | null } = {}): Promise<Post[]> {
+  await delay();
+  const me = requireMember();
+  ensureBirthdayPost();
+  const t = today();
+  const top = (p: MockPost) => (p.kind === "birthday" && p.birthdayOn === t ? 2 : p.pinnedAt && !opts.before ? 1 : 0);
+  return clone(
+    community()
+      .posts.filter((p) => canSeePost(me, p))
+      .filter((p) => !opts.tag || p.tags.some((x) => x.toLowerCase() === opts.tag!.toLowerCase()))
+      .filter((p) => !opts.before || (p.createdAt < opts.before && !p.pinnedAt && top(p) < 2))
+      .sort(
+        (a, b) =>
+          top(b) - top(a) ||
+          (b.pinnedAt ?? "").localeCompare(a.pinnedAt ?? "") ||
+          b.createdAt.localeCompare(a.createdAt),
+      )
+      .slice(0, 20)
+      .map((p) => toPostView(me, p)),
+  );
+}
+
+export async function getPostImages(postId: string): Promise<string[]> {
+  await delay();
+  const me = requireMember();
+  if (!canSeePost(me, findPost(postId))) throw new ApiError("Post not found.", "not_found");
+  return [...(community().images[postId] ?? [])];
+}
+
+export async function createPost(input: PostInput): Promise<string> {
+  await delay();
+  const me = requireMember();
+  const isOfficer = isOfficerNow(me);
+  const led = ledDrives(me);
+  if (!isOfficer && !led.length) throw new ApiError("Only officers and drive heads can post.", "forbidden");
+  const body = input.body.trim();
+  if (!body) throw new ApiError("Write something to post.", "invalid");
+  if (body.length > 2000) throw new ApiError("Posts can be up to 2,000 letters.", "invalid");
+  if (input.images.length > 4) throw new ApiError("Up to 4 pictures.", "invalid");
+  const drive = input.drive?.trim() || null;
+  if (!isOfficer && (!drive || !led.includes(drive))) throw new ApiError("Drive heads post to their own drive.", "forbidden");
+  const labels = postLabels(me);
+  const p = newMockPost({
+    authorId: me.id,
+    authorLabel: labels.includes(input.authorLabel) ? input.authorLabel : labels[0],
+    body,
+    tags: cleanTags(input.tags),
+    drive,
+    urgent: input.urgent,
+    eventAt: input.eventAt,
+  });
+  const c = community();
+  c.posts.push(p);
+  if (input.images.length) c.images[p.id] = [...input.images];
+  persist();
+  return p.id;
+}
+
+export async function updatePost(id: string, patch: PostUpdate): Promise<void> {
+  await delay();
+  const me = requireMember();
+  const p = findPost(id);
+  if (p.authorId !== me.id) throw new ApiError("Only the person who posted can change it.", "forbidden");
+  if (patch.body !== undefined) {
+    const b = patch.body.trim();
+    if (!b) throw new ApiError("Write something to post.", "invalid");
+    if (b !== p.body) {
+      p.body = b;
+      p.editedAt = now();
+    }
+  }
+  if (patch.tags !== undefined) {
+    const tags = cleanTags(patch.tags);
+    if (tags.join("|") !== p.tags.join("|")) {
+      p.tags = tags;
+      p.editedAt = now();
+    }
+  }
+  if (patch.eventAt !== undefined && patch.eventAt !== p.eventAt) {
+    p.eventAt = patch.eventAt;
+    p.editedAt = now();
+  }
+  if (patch.commentsOff !== undefined) p.commentsOff = patch.commentsOff;
+  persist();
+}
+
+export async function deletePost(id: string): Promise<void> {
+  await delay();
+  const me = requireMember();
+  const p = findPost(id);
+  const director = me.role === "super_admin" && hasOfficerPin(me);
+  if (p.authorId !== me.id && !director) throw new ApiError("You can't remove this post.", "forbidden");
+  const c = community();
+  if (p.authorId !== me.id)
+    audit(me, "delete", "posts", `removed a post by ${p.authorId ? memberName(p.authorId) : "His Theatre"}: ${p.body.slice(0, 60)}`);
+  c.posts = c.posts.filter((x) => x.id !== id);
+  c.comments = c.comments.filter((x) => x.postId !== id);
+  c.likes = c.likes.filter((x) => x.postId !== id);
+  c.views = c.views.filter((x) => x.postId !== id);
+  delete c.images[id];
+  persist();
+}
+
+export async function pinPost(id: string, pin: boolean): Promise<void> {
+  await delay();
+  const me = requireMember();
+  if (!isOfficerNow(me)) throw new ApiError("Only officers can pin posts.", "forbidden");
+  const c = community();
+  if (pin && c.posts.filter((p) => p.pinnedAt && p.id !== id).length >= 3)
+    throw new ApiError("Up to 3 posts can be pinned. Unpin one first.", "invalid");
+  findPost(id).pinnedAt = pin ? now() : null;
+  persist();
+}
+
+export async function likePost(id: string, like: boolean): Promise<void> {
+  await delay();
+  const me = requireMember();
+  if (!canSeePost(me, findPost(id))) throw new ApiError("Post not found.", "not_found");
+  const c = community();
+  c.likes = c.likes.filter((l) => !(l.postId === id && l.memberId === me.id));
+  if (like) c.likes.push({ postId: id, memberId: me.id, at: now() });
+  persist();
+}
+
+export async function markPostsSeen(ids: string[]): Promise<void> {
+  const me = sessionMember();
+  if (!me) return;
+  const c = community();
+  for (const id of ids) {
+    if (!c.views.some((v) => v.postId === id && v.memberId === me.id)) c.views.push({ postId: id, memberId: me.id, at: now() });
+  }
+  persist();
+}
+
+function commentLabel(m: Member): string {
+  if (isAdmin(m) && m.position) return m.position;
+  const led = community().driveHeads.find((h) => h.memberId === m.id);
+  return led ? `Head, ${led.drive}` : "";
+}
+
+export async function getComments(postId: string): Promise<PostComment[]> {
+  await delay();
+  const me = requireMember();
+  if (!canSeePost(me, findPost(postId))) throw new ApiError("Post not found.", "not_found");
+  return community()
+    .comments.filter((x) => x.postId === postId)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .map((x) => {
+      const m = findMember(x.memberId);
+      const showPhoto = isAdmin(m) || community().driveHeads.some((h) => h.memberId === m.id);
+      return {
+        id: x.id,
+        parentId: x.parentId,
+        memberId: x.memberId,
+        fullName: m.fullName,
+        label: commentLabel(m),
+        photo: showPhoto ? (db.photos?.[m.id] ?? null) : null,
+        body: x.body,
+        createdAt: x.createdAt,
+        editedAt: x.editedAt,
+      };
+    });
+}
+
+export async function addComment(postId: string, body: string, parentId: string | null = null): Promise<void> {
+  await delay();
+  const me = requireMember();
+  const p = findPost(postId);
+  if (!canSeePost(me, p)) throw new ApiError("Post not found.", "not_found");
+  if (p.commentsOff) throw new ApiError("Comments are turned off for this post.", "invalid");
+  const t = body.trim();
+  if (!t) throw new ApiError("Write a comment first.", "invalid");
+  if (t.length > 500) throw new ApiError("Comments can be up to 500 letters.", "invalid");
+  const c = community();
+  let parent: string | null = null;
+  if (parentId) {
+    const pc = c.comments.find((x) => x.id === parentId && x.postId === postId);
+    if (!pc) throw new ApiError("Comment not found.", "not_found");
+    parent = pc.parentId ?? pc.id;
+  }
+  c.comments.push({ id: nextId("com"), postId, memberId: me.id, parentId: parent, body: t, createdAt: now(), editedAt: null });
+  persist();
+}
+
+export async function editComment(id: string, body: string): Promise<void> {
+  await delay();
+  const me = requireMember();
+  const x = community().comments.find((c) => c.id === id);
+  if (!x || x.memberId !== me.id) throw new ApiError("You can only edit your own comment.", "forbidden");
+  const t = body.trim();
+  if (!t) throw new ApiError("Write a comment first.", "invalid");
+  if (t !== x.body) {
+    x.body = t;
+    x.editedAt = now();
+  }
+  persist();
+}
+
+export async function deleteComment(id: string): Promise<void> {
+  await delay();
+  const me = requireMember();
+  const c = community();
+  const x = c.comments.find((y) => y.id === id);
+  if (!x) throw new ApiError("Comment not found.", "not_found");
+  const p = findPost(x.postId);
+  if (x.memberId !== me.id && !isOfficerNow(me) && p.authorId !== me.id)
+    throw new ApiError("You can't remove this comment.", "forbidden");
+  if (x.memberId !== me.id) audit(me, "delete", "post_comments", `removed a comment by ${memberName(x.memberId)}: ${x.body.slice(0, 60)}`);
+  c.comments = c.comments.filter((y) => y.id !== id && y.parentId !== id);
+  persist();
+}
+
+export async function reportComment(id: string, reason: string): Promise<void> {
+  await delay();
+  const me = requireMember();
+  const c = community();
+  if (!c.comments.some((x) => x.id === id)) throw new ApiError("Comment not found.", "not_found");
+  if (!c.reports.some((r) => r.commentId === id && r.memberId === me.id))
+    c.reports.push({ commentId: id, memberId: me.id, reason: reason.trim().slice(0, 200) });
+  persist();
+}
+
+export async function getLikers(postId: string): Promise<PersonRef[]> {
+  await delay();
+  const me = requireMember();
+  if (!canSeePost(me, findPost(postId))) throw new ApiError("Post not found.", "not_found");
+  return community()
+    .likes.filter((l) => l.postId === postId)
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .map((l) => ({ memberId: l.memberId, fullName: memberName(l.memberId) }));
+}
+
+export async function getViewers(postId: string): Promise<PersonRef[]> {
+  await delay();
+  const me = requireMember();
+  if (!isOfficerNow(me)) throw new ApiError("Only officers can see who viewed a post.", "forbidden");
+  return community()
+    .views.filter((v) => v.postId === postId)
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .map((v) => ({ memberId: v.memberId, fullName: memberName(v.memberId), at: v.at }));
+}
+
+export async function getReportedComments(): Promise<ReportedComment[]> {
+  await delay();
+  requireAdmin();
+  const c = community();
+  const ids = [...new Set(c.reports.map((r) => r.commentId))];
+  return ids
+    .map((id) => c.comments.find((x) => x.id === id))
+    .filter((x): x is NonNullable<typeof x> => Boolean(x))
+    .map((x) => ({
+      commentId: x.id,
+      postId: x.postId,
+      authorName: memberName(x.memberId),
+      body: x.body,
+      reports: c.reports.filter((r) => r.commentId === x.id).length,
+      reasons: c.reports.filter((r) => r.commentId === x.id && r.reason).map((r) => r.reason),
+    }));
+}
+
+export async function getUnreadNews(): Promise<number> {
+  await delay();
+  const me = requireMember();
+  ensureBirthdayPost();
+  const seen = community().settings[me.id]?.newsSeenAt ?? "";
+  return community().posts.filter((p) => canSeePost(me, p) && p.createdAt > seen && p.authorId !== me.id).length;
+}
+
+export async function markNewsSeen(): Promise<void> {
+  const me = sessionMember();
+  if (!me) return;
+  const c = community();
+  c.settings[me.id] = { ...settingsRow(me.id), newsSeenAt: now() };
+  persist();
+}
+
+/* ---------- Settings and notifications ---------- */
+
+function settingsRow(memberId: string) {
+  return community().settings[memberId] ?? { birthdayPost: true, notify: {}, newsSeenAt: null };
+}
+
+export async function getMySettings(): Promise<MySettings> {
+  await delay();
+  const me = requireMember();
+  const row = settingsRow(me.id);
+  return { birthdayPost: row.birthdayPost, notify: { ...NOTIFY_DEFAULTS, ...row.notify } };
+}
+
+export async function saveMySettings(patch: Partial<MySettings>): Promise<MySettings> {
+  await delay();
+  const me = requireMember();
+  const row = settingsRow(me.id);
+  const next = {
+    birthdayPost: patch.birthdayPost ?? row.birthdayPost,
+    notify: { ...NOTIFY_DEFAULTS, ...row.notify, ...(patch.notify ?? {}) },
+  };
+  community().settings[me.id] = { ...row, ...next };
+  persist();
+  return next;
+}
+
+export async function savePushSubscription(sub: PushSubscriptionInput): Promise<void> {
+  await delay();
+  const me = requireMember();
+  const c = community();
+  c.push = c.push.filter((p) => p.endpoint !== sub.endpoint);
+  c.push.push({ endpoint: sub.endpoint, memberId: me.id });
+  persist();
+}
+
+export async function removePushSubscription(endpoint: string): Promise<void> {
+  await delay();
+  const c = community();
+  c.push = c.push.filter((p) => p.endpoint !== endpoint);
+  persist();
+}
+
+export async function getPushPublicKey(): Promise<string | null> {
+  return null;
 }
