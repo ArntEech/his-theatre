@@ -61,6 +61,41 @@ export interface MockDb {
     member: number;
   };
   session: { memberId: string | null; pendingOfficerId: string | null };
+  /** Attendance, drive heads, News and settings. Filled in on first use (see api.mock.ts). */
+  community?: MockCommunity;
+}
+
+export interface MockCommunity {
+  rehearsals: import("../community").Rehearsal[];
+  attendance: { rehearsalId: string; memberId: string; status: import("../community").AttendanceStatus; markedBy: string; markedAt: string }[];
+  excuses: { rehearsalId: string; memberId: string; reason: string; status: "pending" | "approved" | "declined" }[];
+  driveHeads: { memberId: string; drive: string }[];
+  posts: MockPost[];
+  images: Record<string, string[]>;
+  likes: { postId: string; memberId: string; at: string }[];
+  views: { postId: string; memberId: string; at: string }[];
+  comments: { id: string; postId: string; memberId: string; parentId: string | null; body: string; createdAt: string; editedAt: string | null }[];
+  reports: { commentId: string; memberId: string; reason: string }[];
+  settings: Record<string, { birthdayPost: boolean; notify: Record<string, boolean>; newsSeenAt: string | null }>;
+  push: { endpoint: string; memberId: string }[];
+}
+
+export interface MockPost {
+  id: string;
+  authorId: string | null;
+  authorLabel: string;
+  kind: "post" | "birthday" | "notice";
+  body: string;
+  tags: string[];
+  drive: string | null;
+  urgent: boolean;
+  eventAt: string | null;
+  commentsOff: boolean;
+  pinnedAt: string | null;
+  birthdayOn: string | null;
+  birthdayMembers: string[];
+  createdAt: string;
+  editedAt: string | null;
 }
 
 export const SEED_VERSION = 6;

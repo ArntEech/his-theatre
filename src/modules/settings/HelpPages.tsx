@@ -59,6 +59,24 @@ const GUIDES: Record<GuideRole, Topic[]> = {
       ],
     },
     {
+      title: "Attendance",
+      steps: [
+        "Rehearsals are every Tuesday and Thursday. Your drive head or an officer marks you Present, Late, Excused or Absent.",
+        "Home shows this month's rehearsals and your streak. Attendance shows the calendar and your rate.",
+        "Can't make it? On Attendance, tap “I Can't Come” before the rehearsal and give a reason. If it's approved, it won't count against you.",
+        "A mark looks wrong? Speak to your drive head or an officer. They can correct it until the end of that week.",
+      ],
+    },
+    {
+      title: "News",
+      steps: [
+        "News has posts from the officers and your drive head. Tap a tag like Dues or Event to see only those.",
+        "Like, comment, reply and share. Report a comment that isn't right, and the officers will look at it.",
+        "A red dot on News means new posts. Turn on phone notifications in Settings → Notifications.",
+        "On your birthday His Theatre posts a greeting. You can turn that off in Settings → Notifications.",
+      ],
+    },
+    {
       title: "Making it yours",
       steps: [
         "Settings → Personalization: Day, Night, Dark and three glass looks, eye care for late nights, five text sizes and seven fonts.",
@@ -91,6 +109,25 @@ const GUIDES: Record<GuideRole, Topic[]> = {
         "Admin → Members → Setup Codes: codes for everyone who hasn't signed in, each with a WhatsApp button.",
         "Only the Director can give an officer a setup code.",
         "Someone started late? Open them and set “Dues start” to the week they started coming.",
+      ],
+    },
+    {
+      title: "Attendance and drive heads",
+      steps: [
+        "Take attendance: Attendance → the clipboard at the top. Tap each name: Present, Late, Excused, Absent. Then Save.",
+        "No signal at the venue? Save on Phone. It's sent when you're back online.",
+        "Drive heads mark on the day. Officers can correct until Sunday of that week; the Director any time.",
+        "Admin → Attendance: excuse requests, who's missing a lot, everyone's rate, and adding or cancelling rehearsals. A cancelled rehearsal posts a notice on News.",
+        "The Director chooses drive heads in Admin → Attendance → Drive Heads.",
+      ],
+    },
+    {
+      title: "Posting on News",
+      steps: [
+        "News → + . Choose who you post as, who sees it (everyone or one drive), tags, an optional event time and up to 4 pictures.",
+        "Urgent posts show in red and notify everyone. Use them sparingly.",
+        "Your post's ⋯ menu: Edit, Turn Comments Off, Delete. Officers can pin up to 3 posts and remove comments; the Director can remove any post.",
+        "Officers can tap the eye on a post to see who has seen it.",
       ],
     },
     {
@@ -211,8 +248,16 @@ const FAQ: { q: string; a: ReactNode }[] = [
     a: "Only you and the officers. Other members can't see your dues, phone number or details.",
   },
   {
-    q: "When are Attendance and Announcements coming?",
-    a: "They're being built. You'll see them in the app when they're ready.",
+    q: "Why was I marked absent?",
+    a: "If attendance was taken at a rehearsal and you weren't ticked, it counts as absent. If that's wrong, ask your drive head or an officer to correct it that week.",
+  },
+  {
+    q: "How do I get notifications?",
+    a: "Settings → Notifications → turn on Phone Notifications. On iPhone, add the app to your Home Screen first and open it from there.",
+  },
+  {
+    q: "Who can see my comments and likes?",
+    a: "Everyone who can see the post. Only officers can see who has viewed a post.",
   },
 ];
 
@@ -257,7 +302,8 @@ const POLICY: { title: string; body: string[] }[] = [
     body: [
       "You can see your own details, dues and receipts.",
       "The officers (Director, Financial Secretary, Treasurer) can see everyone's, to run the ministry's finances.",
-      "Other members cannot see your details or your dues.",
+      "Other members cannot see your details, dues or attendance. Drive heads see names and drives on the roll call, nothing else.",
+      "On News, your name shows with your comments and likes. Your picture shows only if you're an officer or a drive head.",
     ],
   },
   {

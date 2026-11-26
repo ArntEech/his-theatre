@@ -9,6 +9,9 @@ import { PreviewAs } from "./PreviewAs";
 import { OfflineBanner } from "./OfflineBanner";
 import { ThemeToggle } from "./ThemeToggle";
 import { PullToRefresh } from "./PullToRefresh";
+import { AttendanceSync } from "@/modules/attendance/AttendanceSync";
+import { BirthdayPopup } from "@/modules/news/BirthdayPopup";
+import { refreshPushOwner } from "@/lib/push";
 
 const depth = (path: string) => path.split("/").filter(Boolean).length;
 const section = (path: string) => path.split("/").filter(Boolean)[0] ?? "";
@@ -41,6 +44,11 @@ export function AppShell() {
     window.scrollTo(0, 0);
   }, [pathname]);
 
+  // A phone that already allows notifications follows whoever is signed in on it.
+  useEffect(() => {
+    if (member?.id) void refreshPushOwner().catch(() => {});
+  }, [member?.id]);
+
   return (
     <div className="min-h-dvh overflow-x-clip md:pl-[17.5rem]">
       <Sidebar member={member} />
@@ -53,6 +61,8 @@ export function AppShell() {
         </div>
       </main>
       <TabBar showAdmin={isAdmin(member)} />
+      <AttendanceSync />
+      <BirthdayPopup />
     </div>
   );
 }

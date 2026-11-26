@@ -1,5 +1,6 @@
 import { NavLink } from "react-router";
 import {
+  ClipboardCheck,
   ChevronRight,
   ArrowLeftRight,
   CalendarDays,
@@ -18,11 +19,13 @@ import { cx } from "@/lib/cx";
 import { Logo } from "./Logo";
 import { MemberAvatar } from "./Avatar";
 import { mainNav } from "./TabBar";
+import { useUnreadNews } from "@/data/queries";
 
 const ADMIN_LINKS: { to: string; label: string; icon: LucideIcon }[] = [
   { to: "/admin/today", label: "Today", icon: Sun },
   { to: "/admin/pay", label: "Record Payment", icon: ReceiptText },
   { to: "/admin/members", label: "Members", icon: Users },
+  { to: "/admin/attendance", label: "Attendance", icon: ClipboardCheck },
   { to: "/admin/handovers", label: "Handovers", icon: ArrowLeftRight },
   { to: "/admin/expenses", label: "Expenses", icon: Wallet },
   { to: "/admin/income", label: "Other Income", icon: HandCoins },
@@ -42,6 +45,7 @@ const rowClass = (isActive: boolean) =>
 /** iPad-style sidebar that replaces the tab bar at regular widths. */
 export function Sidebar({ member }: { member: Member | null | undefined }) {
   const admin = isAdmin(member);
+  const unread = useUnreadNews().data ?? 0;
   return (
     <aside className="no-print fixed inset-y-0 left-0 z-40 hidden w-[17.5rem] flex-col border-r-[0.5px] border-separator bg-cell/60 pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] md:flex">
       <div className="flex items-center gap-3 px-5 pt-6 pb-5">
@@ -64,6 +68,11 @@ export function Sidebar({ member }: { member: Member | null | undefined }) {
                       className={cx("size-[1.4rem]", !isActive && "text-tint-text")}
                     />
                     {label}
+                    {to === "/announcements" && unread > 0 && !isActive && (
+                      <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-behind px-1.5 text-caption2 font-bold text-white">
+                        {unread > 9 ? "9+" : unread}
+                      </span>
+                    )}
                     {soon && (
                       <span className="ml-auto rounded-full bg-fill px-2 py-0.5 text-caption2 font-semibold text-label-2">
                         Soon

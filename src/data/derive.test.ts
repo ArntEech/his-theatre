@@ -12,7 +12,7 @@ const strip = <T,>(x: T) => JSON.parse(JSON.stringify(x)) as T;
 
 describe("derive.ts matches the demo data layer", () => {
   it("gives the same dues for every member", async () => {
-    await mock.signInMember("HIS-001", "1234");
+    await mock.signInMember("HIS-001", "258036");
     const semester = (await mock.getCurrentSemester())!;
     for (const m of s.members) {
       const detail = await mock.getMember(m.id);
@@ -21,7 +21,7 @@ describe("derive.ts matches the demo data layer", () => {
   });
 
   it("gives the same cash position, today, dashboard and report", async () => {
-    await mock.signInMember("HIS-001", "1234");
+    await mock.signInMember("HIS-001", "258036");
     const me = (await mock.getCurrentMember())!;
     const semester = (await mock.getCurrentSemester())!;
     expect(strip(cashPosition(s))).toEqual(strip(await mock.getCashPosition()));

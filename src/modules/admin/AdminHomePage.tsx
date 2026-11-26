@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import {
+  ClipboardCheck,
   ArrowLeftRight,
   CalendarDays,
   ClipboardList,
@@ -143,6 +144,11 @@ export function AdminHomePage() {
               leading={<IconTile icon={Users} color="blue" />}
               title="Members"
               trailing={String(d.activeMembers)}
+            />
+            <ListRow
+              to="/admin/attendance"
+              leading={<IconTile icon={ClipboardCheck} color="gold" />}
+              title="Attendance"
             />
             <ListRow
               to="/admin/semester"

@@ -155,3 +155,115 @@ function guardOnline<T>(run: () => Promise<T>): Promise<T> {
   if (!isOnline()) return Promise.reject(new ApiError(OFFLINE_MESSAGE, "offline"));
   return run();
 }
+
+/* ------------------------------------------------------------------ */
+/* Attendance, News, settings                                           */
+/* ------------------------------------------------------------------ */
+
+export function useAttendanceAccess() {
+  const { data: me } = useCurrentMember();
+  return useQuery({
+    queryKey: ["attendanceAccess", me?.id ?? "", me?.role ?? ""],
+    queryFn: api.getAttendanceAccess,
+    enabled: Boolean(me),
+    staleTime: 60_000,
+  });
+}
+
+export function useMyAttendance(semesterId: string | undefined) {
+  return useQuery({
+    queryKey: ["myAttendance", semesterId ?? ""],
+    queryFn: () => api.getMyAttendance(semesterId!),
+    enabled: Boolean(semesterId),
+  });
+}
+
+export function useMemberAttendance(memberId: string | undefined, semesterId: string | undefined) {
+  return useQuery({
+    queryKey: ["memberAttendance", memberId ?? "", semesterId ?? ""],
+    queryFn: () => api.getMemberAttendance(memberId!, semesterId!),
+    enabled: Boolean(memberId && semesterId),
+  });
+}
+
+export function useRehearsals(semesterId: string | undefined) {
+  return useQuery({
+    queryKey: ["rehearsals", semesterId ?? ""],
+    queryFn: () => api.listRehearsals(semesterId!),
+    enabled: Boolean(semesterId),
+  });
+}
+
+export function useRollCall(rehearsalId: string | undefined) {
+  return useQuery({
+    queryKey: ["rollCall", rehearsalId ?? ""],
+    queryFn: () => api.getRollCall(rehearsalId!),
+    enabled: Boolean(rehearsalId),
+  });
+}
+
+export function useAttendanceOverview(semesterId: string | undefined) {
+  return useQuery({
+    queryKey: ["attendanceOverview", semesterId ?? ""],
+    queryFn: () => api.getAttendanceOverview(semesterId!),
+    enabled: Boolean(semesterId),
+  });
+}
+
+export function useDriveHeads() {
+  return useQuery({ queryKey: ["driveHeads"], queryFn: api.listDriveHeads, staleTime: 5 * 60_000 });
+}
+
+export function useDrives(enabled = true) {
+  return useQuery({ queryKey: ["drives"], queryFn: api.listDrives, enabled, staleTime: 5 * 60_000 });
+}
+
+export function useNewsAccess() {
+  const { data: me } = useCurrentMember();
+  return useQuery({
+    queryKey: ["newsAccess", me?.id ?? "", me?.role ?? ""],
+    queryFn: api.getNewsAccess,
+    enabled: Boolean(me),
+    staleTime: 60_000,
+  });
+}
+
+export function useNewsFeed(tag: string | null) {
+  return useQuery({
+    queryKey: ["news", tag ?? ""],
+    queryFn: () => api.getNewsFeed({ tag }),
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function usePostImages(postId: string, count: number) {
+  return useQuery({
+    queryKey: ["postImages", postId, count],
+    queryFn: () => api.getPostImages(postId),
+    enabled: count > 0,
+    staleTime: Infinity,
+  });
+}
+
+export function useComments(postId: string | null) {
+  return useQuery({
+    queryKey: ["comments", postId ?? ""],
+    queryFn: () => api.getComments(postId!),
+    enabled: Boolean(postId),
+  });
+}
+
+export function useUnreadNews() {
+  const { data: me } = useCurrentMember();
+  return useQuery({
+    queryKey: ["newsUnread", me?.id ?? ""],
+    queryFn: api.getUnreadNews,
+    enabled: Boolean(me),
+    refetchInterval: 5 * 60_000,
+  });
+}
+
+export function useMySettings() {
+  const { data: me } = useCurrentMember();
+  return useQuery({ queryKey: ["mySettings", me?.id ?? ""], queryFn: api.getMySettings, enabled: Boolean(me) });
+}

@@ -9,7 +9,6 @@ import {
   EllipsisVertical,
   HardDrive,
   KeyRound,
-  Languages,
   LogOut,
   MessageCircleQuestion,
   MonitorSmartphone,
@@ -65,8 +64,7 @@ export function SettingsPage() {
   const items: Item[] = [
     { key: "account", title: "Account", subtitle: "Your details and Member ID", icon: UserRound, color: "gold", section: "main", words: "profile name phone drive member id details", to: "/profile" },
     { key: "looks", title: "Personalization", subtitle: "Looks, eye care, text size, font", icon: Palette, color: "orange", section: "main", words: "theme day night dark clear blur frosted eye care text size font appearance look", to: "/settings/personalization" },
-    { key: "notifications", title: "Notifications", icon: Bell, color: "orange", section: "main", words: "alerts reminders", soon: true },
-    { key: "language", title: "Language", icon: Languages, color: "blue", section: "main", words: "twi english", soon: true },
+    { key: "notifications", title: "Notifications", subtitle: "Phone alerts and birthday post", icon: Bell, color: "orange", section: "main", words: "alerts reminders push birthday", to: "/settings/notifications" },
     { key: "pin", title: "Change PIN", icon: KeyRound, color: "gray", section: "security", words: "password pin security", onClick: () => setPinOpen(true) },
     { key: "devices", title: "Devices", subtitle: "Sign out of your other phones", icon: MonitorSmartphone, color: "green", section: "security", words: "phones sessions sign out lost stolen", to: "/settings/devices" },
     { key: "data", title: "Data on This Phone", icon: HardDrive, color: "blue", section: "security", words: "storage offline cache clear saved", to: "/settings/data" },

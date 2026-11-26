@@ -74,6 +74,29 @@ import {
   type SetupCodeResult,
   type TodayReport,
 } from "./types";
+import {
+  NOTIFY_DEFAULTS,
+  type AttendanceAccess,
+  type AttendanceMarkInput,
+  type AttendanceOverviewRow,
+  type AttendanceTotals,
+  type DriveHead,
+  type MyAttendance,
+  type MySettings,
+  type NewRehearsalInput,
+  type NewsAccess,
+  type PendingExcuse,
+  type PersonRef,
+  type Post,
+  type PostComment,
+  type PostInput,
+  type PostUpdate,
+  type PushSubscriptionInput,
+  type Rehearsal,
+  type ReportedComment,
+  type RollCallEntry,
+} from "./community";
+import { buildDays, drivesOf, missedInARow, nextRehearsal, summarize, type MemberWindow } from "@/lib/attendance";
 
 /* ------------------------------------------------------------------ */
 /* Connection                                                           */
@@ -1206,6 +1229,13 @@ const WATCHED = [
   "semester_weeks",
   "dues_rates",
   "semesters",
+  "rehearsals",
+  "attendance",
+  "excuse_requests",
+  "drive_heads",
+  "posts",
+  "post_comments",
+  "post_likes",
 ];
 
 /**
@@ -1237,4 +1267,471 @@ export async function devPreviewAs(_memberCode: string): Promise<Session> {
 
 export async function devResetMockData(): Promise<void> {
   throw new ApiError("Reset is only available on demo data.", "forbidden");
+}
+
+/* ------------------------------------------------------------------ */
+/* Attendance and drive heads                                           */
+/* ------------------------------------------------------------------ */
+
+const toRehearsal = (r: Row): Rehearsal => ({
+  id: r.id,
+  semesterId: r.semester_id,
+  heldOn: r.held_on,
+  kind: r.kind,
+  drive: r.drive ?? null,
+  title: r.title ?? "",
+  startsAt: r.starts_at ? String(r.starts_at).slice(0, 5) : null,
+  isCancelled: r.is_cancelled,
+  cancelReason: r.cancel_reason ?? null,
+  rollTaken: r.roll_taken ?? false,
+});
+
+async function rehearsalsOf(semesterId: string): Promise<Rehearsal[]> {
+  const rows = await run<Row[]>(
+    sb().from("rehearsals").select("*").eq("semester_id", semesterId).order("held_on").order("starts_at"),
+  );
+  return rows.map(toRehearsal);
+}
+
+/** Everything from one table for a semester's rehearsals, a page at a time. */
+async function forSemester(table: string, columns: string, semesterId: string, memberId?: string): Promise<Row[]> {
+  const out: Row[] = [];
+  for (let from = 0; ; from += PAGE) {
+    let q = sb().from(table).select(`${columns}, rehearsals!inner(semester_id)`).eq("rehearsals.semester_id", semesterId);
+    if (memberId) q = q.eq("member_id", memberId);
+    const rows = await run<Row[]>(q.order("rehearsal_id").order("member_id").range(from, from + PAGE - 1));
+    out.push(...rows);
+    if (rows.length < PAGE) return out;
+  }
+}
+
+async function windowFor(member: Member, semesterId: string): Promise<MemberWindow> {
+  const [ms, weeks] = await Promise.all([
+    run<Row | null>(
+      sb().from("member_semesters").select("start_week_no").eq("member_id", member.id).eq("semester_id", semesterId).maybeSingle(),
+    ),
+    run<Row[]>(sb().from("semester_weeks").select("week_no, week_start").eq("semester_id", semesterId)),
+  ]);
+  const start = ms ? weeks.find((w) => w.week_no === ms.start_week_no)?.week_start ?? null : null;
+  return { drives: drivesOf(member.drive, member.profile.driveInterests), from: start, until: member.leftOn };
+}
+
+async function attendanceOf(member: Member, semesterId: string): Promise<MyAttendance> {
+  const [rehearsals, marks, excuses, w] = await Promise.all([
+    rehearsalsOf(semesterId),
+    forSemester("attendance", "rehearsal_id, status, marked_at", semesterId, member.id),
+    forSemester("excuse_requests", "rehearsal_id, reason, status", semesterId, member.id),
+    windowFor(member, semesterId),
+  ]);
+  const days = buildDays(
+    rehearsals,
+    new Map(marks.map((m) => [m.rehearsal_id, { status: m.status, markedAt: m.marked_at }])),
+    new Map(excuses.map((e) => [e.rehearsal_id, { reason: e.reason, status: e.status }])),
+    w,
+    today(),
+  );
+  return { semesterId, days, summary: summarize(days), next: nextRehearsal(days) };
+}
+
+export async function getAttendanceAccess(): Promise<AttendanceAccess> {
+  const me = await getCurrentMember();
+  if (!me) throw new ApiError("Please sign in again.", "unauthenticated");
+  const led = await run<string[] | null>(sb().rpc("my_led_drives"));
+  const isOfficer = isAdmin(me);
+  return {
+    canTake: isOfficer || (led ?? []).length > 0,
+    isOfficer,
+    ledDrives: led ?? [],
+    myDrives: drivesOf(me.drive, me.profile.driveInterests),
+  };
+}
+
+export async function getMyAttendance(semesterId: string): Promise<MyAttendance> {
+  const me = await getCurrentMember();
+  if (!me) throw new ApiError("Please sign in again.", "unauthenticated");
+  return attendanceOf(me, semesterId);
+}
+
+export async function getMemberAttendance(memberId: string, semesterId: string): Promise<MyAttendance> {
+  const row = await run<Row>(sb().from("members").select("*").eq("id", memberId).single());
+  return attendanceOf(toMember(row), semesterId);
+}
+
+export async function listRehearsals(semesterId: string): Promise<Rehearsal[]> {
+  return rehearsalsOf(semesterId);
+}
+
+export async function getRollCall(rehearsalId: string): Promise<RollCallEntry[]> {
+  const rows = await run<Row[]>(sb().rpc("roll_call", { p_rehearsal: rehearsalId }));
+  return rows.map((r) => ({
+    memberId: r.member_id,
+    memberCode: r.member_code,
+    fullName: r.full_name,
+    drives: r.drives ?? [],
+    status: r.status ?? null,
+    markedByName: r.marked_by_name ?? null,
+    markedAt: r.marked_at ?? null,
+    excuse: r.excuse_reason ? { reason: r.excuse_reason, status: r.excuse_status } : null,
+  }));
+}
+
+export async function markAttendance(rehearsalId: string, marks: AttendanceMarkInput[]): Promise<AttendanceTotals> {
+  const totals = await run<Row>(
+    sb().rpc("mark_attendance", {
+      p_rehearsal: rehearsalId,
+      p_marks: marks.map((m) => ({ member_id: m.memberId, status: m.status })),
+    }),
+  );
+  return {
+    present: Number(totals.present ?? 0),
+    late: Number(totals.late ?? 0),
+    excused: Number(totals.excused ?? 0),
+    absent: Number(totals.absent ?? 0),
+    changed: Number(totals.changed ?? 0),
+  };
+}
+
+export async function addRehearsal(input: NewRehearsalInput): Promise<string> {
+  return run<string>(
+    sb().rpc("add_rehearsal", {
+      p_held_on: input.heldOn,
+      p_drive: input.drive,
+      p_title: input.title.trim(),
+      p_starts_at: input.startsAt,
+    }),
+  );
+}
+
+export async function cancelRehearsal(id: string, reason: string, cancel = true): Promise<void> {
+  await run(sb().rpc("cancel_rehearsal", { p_id: id, p_reason: reason, p_cancel: cancel }));
+}
+
+export async function requestExcuse(rehearsalId: string, reason: string): Promise<void> {
+  await run(sb().rpc("request_excuse", { p_rehearsal: rehearsalId, p_reason: reason }));
+}
+
+export async function decideExcuse(rehearsalId: string, memberId: string, approve: boolean): Promise<void> {
+  await run(sb().rpc("decide_excuse", { p_rehearsal: rehearsalId, p_member: memberId, p_approve: approve }));
+}
+
+export async function getAttendanceOverview(
+  semesterId: string,
+): Promise<{ rows: AttendanceOverviewRow[]; pending: PendingExcuse[] }> {
+  const [rehearsals, members, ms, weeks, marks, excuses] = await Promise.all([
+    rehearsalsOf(semesterId),
+    all("members", ["member_code"]),
+    run<Row[]>(sb().from("member_semesters").select("member_id, start_week_no").eq("semester_id", semesterId)),
+    run<Row[]>(sb().from("semester_weeks").select("week_no, week_start").eq("semester_id", semesterId)),
+    forSemester("attendance", "rehearsal_id, member_id, status, marked_at", semesterId),
+    forSemester("excuse_requests", "rehearsal_id, member_id, reason, status", semesterId),
+  ]);
+  const t = today();
+  const startWeek = new Map(ms.map((r) => [r.member_id, r.start_week_no as number]));
+  const weekStart = new Map(weeks.map((w) => [w.week_no as number, w.week_start as string]));
+  const people = members.map(toMember).filter((m) => startWeek.has(m.id) && (m.isActive || m.leftOn));
+  const rows = people.map((m) => {
+    const own = marks.filter((x) => x.member_id === m.id);
+    const days = buildDays(
+      rehearsals,
+      new Map(own.map((x) => [x.rehearsal_id, { status: x.status, markedAt: x.marked_at }])),
+      new Map(),
+      {
+        drives: drivesOf(m.drive, m.profile.driveInterests),
+        from: weekStart.get(startWeek.get(m.id)!) ?? null,
+        until: m.leftOn,
+      },
+      t,
+    );
+    return {
+      memberId: m.id,
+      memberCode: m.memberCode,
+      fullName: m.fullName,
+      drive: m.drive,
+      summary: summarize(days),
+      missedInARow: missedInARow(days),
+    };
+  });
+  const byId = new Map(rehearsals.map((r) => [r.id, r]));
+  const pending = excuses
+    .filter((e) => e.status === "pending" && (byId.get(e.rehearsal_id)?.heldOn ?? "") >= t)
+    .map((e) => ({
+      rehearsalId: e.rehearsal_id,
+      heldOn: byId.get(e.rehearsal_id)!.heldOn,
+      memberId: e.member_id,
+      fullName: people.find((p) => p.id === e.member_id)?.fullName ?? "Member",
+      reason: e.reason,
+    }))
+    .sort((a, b) => a.heldOn.localeCompare(b.heldOn));
+  return { rows, pending };
+}
+
+export async function listDriveHeads(): Promise<DriveHead[]> {
+  const rows = await run<Row[]>(sb().rpc("list_drive_heads"));
+  return rows.map((r) => ({ memberId: r.member_id, fullName: r.full_name, drive: r.drive }));
+}
+
+export async function setDriveHead(memberId: string, drive: string, on: boolean): Promise<void> {
+  await run(sb().rpc("set_drive_head", { p_member: memberId, p_drive: drive, p_on: on }));
+}
+
+/** Drive names in use (officers see every member's drive; others their own and the ones they lead). */
+export async function listDrives(): Promise<string[]> {
+  const [rows, led] = await Promise.all([
+    run<Row[]>(sb().from("members").select("drive, drive_interests").eq("is_active", true)),
+    run<string[] | null>(sb().rpc("my_led_drives")),
+  ]);
+  const set = new Set<string>(led ?? []);
+  for (const r of rows) for (const d of drivesOf(r.drive ?? "", r.drive_interests ?? "")) set.add(d);
+  return [...set].sort();
+}
+
+/* ------------------------------------------------------------------ */
+/* News                                                                 */
+/* ------------------------------------------------------------------ */
+
+const toPost = (r: Row): Post => ({
+  id: r.id,
+  authorId: r.author_id ?? null,
+  authorName: r.author_name ?? "His Theatre",
+  authorLabel: r.author_label ?? "",
+  authorPhoto: r.author_photo ?? null,
+  kind: r.kind,
+  body: r.body,
+  tags: r.tags ?? [],
+  drive: r.drive ?? null,
+  urgent: r.urgent,
+  eventAt: r.event_at ?? null,
+  commentsOff: r.comments_off,
+  pinned: Boolean(r.pinned_at),
+  isTodaysBirthday: r.kind === "birthday" && r.birthday_on === today(),
+  birthdayNames: r.birthday_names ?? [],
+  imageCount: r.image_count ?? 0,
+  createdAt: r.created_at,
+  editedAt: r.edited_at ?? null,
+  likes: Number(r.likes ?? 0),
+  comments: Number(r.comments ?? 0),
+  views: Number(r.views ?? 0),
+  likedByMe: Boolean(r.liked_by_me),
+  seenByMe: Boolean(r.seen_by_me),
+});
+
+export async function getNewsAccess(): Promise<NewsAccess> {
+  const me = await getCurrentMember();
+  if (!me) throw new ApiError("Please sign in again.", "unauthenticated");
+  const [labels, led] = await Promise.all([
+    run<string[] | null>(sb().rpc("my_post_labels")),
+    run<string[] | null>(sb().rpc("my_led_drives")),
+  ]);
+  const isOfficer = isAdmin(me);
+  return {
+    canPost: isOfficer || (led ?? []).length > 0,
+    isOfficer,
+    isDirector: me.role === "super_admin",
+    labels: labels ?? [],
+    drives: isOfficer ? await listDrives() : (led ?? []),
+  };
+}
+
+export async function getNewsFeed(opts: { before?: string | null; tag?: string | null } = {}): Promise<Post[]> {
+  const rows = await run<Row[]>(
+    sb().rpc("news_feed", { p_before: opts.before ?? null, p_tag: opts.tag ?? null, p_limit: 20 }),
+  );
+  return rows.map(toPost);
+}
+
+export async function getPostImages(postId: string): Promise<string[]> {
+  const rows = await run<Row[]>(sb().from("post_images").select("image").eq("post_id", postId).order("position"));
+  return rows.map((r) => r.image as string);
+}
+
+function checkPost(body: string | undefined, tags: string[] | undefined) {
+  if (body !== undefined) {
+    const t = body.trim();
+    if (!t) throw new ApiError("Write something to post.", "invalid");
+    if (t.length > 2000) throw new ApiError("Posts can be up to 2,000 letters.", "invalid");
+  }
+  if (tags && tags.length > 5) throw new ApiError("Up to 5 tags.", "invalid");
+}
+
+export async function createPost(input: PostInput): Promise<string> {
+  checkPost(input.body, input.tags);
+  if (input.images.length > 4) throw new ApiError("Up to 4 pictures.", "invalid");
+  const row = await run<Row>(
+    sb()
+      .from("posts")
+      .insert({
+        body: input.body.trim(),
+        tags: input.tags,
+        drive: input.drive,
+        urgent: input.urgent,
+        event_at: input.eventAt,
+        author_label: input.authorLabel,
+      })
+      .select("id")
+      .single(),
+  );
+  if (input.images.length) {
+    await run(
+      sb()
+        .from("post_images")
+        .insert(input.images.map((image, position) => ({ post_id: row.id, position, image }))),
+    );
+  }
+  return row.id as string;
+}
+
+export async function updatePost(id: string, patch: PostUpdate): Promise<void> {
+  checkPost(patch.body, patch.tags);
+  const cols: Row = {};
+  if (patch.body !== undefined) cols.body = patch.body.trim();
+  if (patch.tags !== undefined) cols.tags = patch.tags;
+  if (patch.eventAt !== undefined) cols.event_at = patch.eventAt;
+  if (patch.commentsOff !== undefined) cols.comments_off = patch.commentsOff;
+  const rows = await run<Row[]>(sb().from("posts").update(cols).eq("id", id).select("id"));
+  if (!rows.length) throw new ApiError("Only the person who posted can change it.", "forbidden");
+}
+
+export async function deletePost(id: string): Promise<void> {
+  const rows = await run<Row[]>(sb().from("posts").delete().eq("id", id).select("id"));
+  if (!rows.length) throw new ApiError("You can't remove this post.", "forbidden");
+}
+
+export async function pinPost(id: string, pin: boolean): Promise<void> {
+  await run(sb().rpc("pin_post", { p_id: id, p_pin: pin }));
+}
+
+export async function likePost(id: string, like: boolean): Promise<void> {
+  const me = await getCurrentMember();
+  if (!me) throw new ApiError("Please sign in again.", "unauthenticated");
+  if (like) {
+    await run(sb().from("post_likes").upsert({ post_id: id, member_id: me.id }, { ignoreDuplicates: true }));
+  } else {
+    await run(sb().from("post_likes").delete().eq("post_id", id).eq("member_id", me.id));
+  }
+}
+
+export async function markPostsSeen(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const me = await getCurrentMember();
+  if (!me) return;
+  await run(
+    sb()
+      .from("post_views")
+      .upsert(ids.map((post_id) => ({ post_id, member_id: me.id })), { ignoreDuplicates: true }),
+  );
+}
+
+export async function getComments(postId: string): Promise<PostComment[]> {
+  const rows = await run<Row[]>(sb().rpc("post_comments_for", { p_post: postId }));
+  return rows.map((r) => ({
+    id: r.id,
+    parentId: r.parent_id ?? null,
+    memberId: r.member_id,
+    fullName: r.full_name,
+    label: r.label ?? "",
+    photo: r.photo ?? null,
+    body: r.body,
+    createdAt: r.created_at,
+    editedAt: r.edited_at ?? null,
+  }));
+}
+
+export async function addComment(postId: string, body: string, parentId: string | null = null): Promise<void> {
+  const t = body.trim();
+  if (!t) throw new ApiError("Write a comment first.", "invalid");
+  if (t.length > 500) throw new ApiError("Comments can be up to 500 letters.", "invalid");
+  await run(sb().from("post_comments").insert({ post_id: postId, body: t, parent_id: parentId }));
+}
+
+export async function editComment(id: string, body: string): Promise<void> {
+  const t = body.trim();
+  if (!t) throw new ApiError("Write a comment first.", "invalid");
+  const rows = await run<Row[]>(sb().from("post_comments").update({ body: t }).eq("id", id).select("id"));
+  if (!rows.length) throw new ApiError("You can only edit your own comment.", "forbidden");
+}
+
+export async function deleteComment(id: string): Promise<void> {
+  const rows = await run<Row[]>(sb().from("post_comments").delete().eq("id", id).select("id"));
+  if (!rows.length) throw new ApiError("You can't remove this comment.", "forbidden");
+}
+
+export async function reportComment(id: string, reason: string): Promise<void> {
+  await run(sb().rpc("report_comment", { p_comment: id, p_reason: reason }));
+}
+
+export async function getLikers(postId: string): Promise<PersonRef[]> {
+  const rows = await run<Row[]>(sb().rpc("post_likers", { p_post: postId }));
+  return rows.map((r) => ({ memberId: r.member_id, fullName: r.full_name }));
+}
+
+export async function getViewers(postId: string): Promise<PersonRef[]> {
+  const rows = await run<Row[]>(sb().rpc("post_viewers", { p_post: postId }));
+  return rows.map((r) => ({ memberId: r.member_id, fullName: r.full_name, at: r.seen_at }));
+}
+
+export async function getReportedComments(): Promise<ReportedComment[]> {
+  const rows = await run<Row[]>(sb().rpc("reported_comments"));
+  return rows.map((r) => ({
+    commentId: r.comment_id,
+    postId: r.post_id,
+    authorName: r.author_name,
+    body: r.body,
+    reports: Number(r.reports),
+    reasons: r.reasons ?? [],
+  }));
+}
+
+export async function getUnreadNews(): Promise<number> {
+  return Number((await run<number>(sb().rpc("news_unread"))) ?? 0);
+}
+
+export async function markNewsSeen(): Promise<void> {
+  await run(sb().rpc("mark_news_seen"));
+}
+
+/* ------------------------------------------------------------------ */
+/* Settings and notifications                                           */
+/* ------------------------------------------------------------------ */
+
+export async function getMySettings(): Promise<MySettings> {
+  const me = await getCurrentMember();
+  if (!me) throw new ApiError("Please sign in again.", "unauthenticated");
+  const row = await run<Row | null>(
+    sb().from("member_settings").select("birthday_post, notify").eq("member_id", me.id).maybeSingle(),
+  );
+  return {
+    birthdayPost: row?.birthday_post ?? true,
+    notify: { ...NOTIFY_DEFAULTS, ...((row?.notify as Record<string, boolean>) ?? {}) },
+  };
+}
+
+export async function saveMySettings(patch: Partial<MySettings>): Promise<MySettings> {
+  const me = await getCurrentMember();
+  if (!me) throw new ApiError("Please sign in again.", "unauthenticated");
+  const current = await getMySettings();
+  const next: MySettings = {
+    birthdayPost: patch.birthdayPost ?? current.birthdayPost,
+    notify: { ...current.notify, ...(patch.notify ?? {}) },
+  };
+  await run(
+    sb()
+      .from("member_settings")
+      .upsert(
+        { member_id: me.id, birthday_post: next.birthdayPost, notify: next.notify, updated_at: new Date().toISOString() },
+        { onConflict: "member_id" },
+      ),
+  );
+  return next;
+}
+
+export async function savePushSubscription(sub: PushSubscriptionInput): Promise<void> {
+  await run(sb().rpc("save_push_subscription", { p_endpoint: sub.endpoint, p_p256dh: sub.p256dh, p_auth: sub.auth }));
+}
+
+export async function removePushSubscription(endpoint: string): Promise<void> {
+  await run(sb().from("push_subscriptions").delete().eq("endpoint", endpoint));
+}
+
+export async function getPushPublicKey(): Promise<string | null> {
+  return (await run<string | null>(sb().rpc("push_public_key"))) ?? null;
 }
