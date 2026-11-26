@@ -69,7 +69,7 @@ export function AttendanceAdminPage() {
       </ListSection>
 
       {o && o.pending.length > 0 && (
-        <ListSection header="Asking to Be Excused">
+        <ListSection header="Asking to Be Excused" footer="Approving marks them Absent with excuse.">
           {o.pending.map((p) => (
             <li key={`${p.rehearsalId}-${p.memberId}`} className="list-row">
               <div className="row-content mx-4 py-3">
@@ -122,14 +122,14 @@ export function AttendanceAdminPage() {
               </SelectField>
             </div>
           }
-          footer="Lowest attendance first. Excused rehearsals don't count against anyone."
+          footer="Lowest attendance first. An absence with an excuse doesn't count against anyone."
         >
           {rows.map((r) => (
             <ListRow
               key={r.memberId}
               leading={<Avatar name={r.fullName} size="sm" />}
               title={r.fullName}
-              subtitle={`${r.summary.attended} of ${r.summary.counted} · ${r.summary.late} late · ${r.summary.excused} excused`}
+              subtitle={`${r.summary.attended} of ${r.summary.counted} · ${r.summary.excused} absent with excuse`}
               trailing={<span className="font-semibold tnum text-label">{percent(r.summary.rate)}</span>}
               to={`/admin/members/${r.memberId}`}
             />

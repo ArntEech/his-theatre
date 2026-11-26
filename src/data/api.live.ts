@@ -1384,7 +1384,6 @@ export async function markAttendance(rehearsalId: string, marks: AttendanceMarkI
   );
   return {
     present: Number(totals.present ?? 0),
-    late: Number(totals.late ?? 0),
     excused: Number(totals.excused ?? 0),
     absent: Number(totals.absent ?? 0),
     changed: Number(totals.changed ?? 0),

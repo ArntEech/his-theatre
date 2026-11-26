@@ -5,10 +5,9 @@ import { STATUS_LABEL } from "@/lib/attendance";
 import { parseIsoDate } from "@/lib/dates";
 import { cx } from "@/lib/cx";
 
-/** Colours for each mark: green present, gold late, blue excused, orange outline absent. */
+/** Colours for each mark: green present, orange outline absent, blue absent with excuse. */
 export const STATUS_CELL: Record<AttendanceStatus, string> = {
   present: "bg-paid/20 text-paid-text",
-  late: "bg-tint/25 text-tint-text",
   excused: "bg-ahead/18 text-ahead-text",
   absent: "text-behind-text ring-[1.5px] ring-inset ring-behind",
 };
@@ -30,7 +29,7 @@ export function StatusPill({ status, className }: { status: AttendanceStatus | n
 export function Legend() {
   return (
     <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 text-caption text-label-2">
-      {(["present", "late", "excused", "absent"] as AttendanceStatus[]).map((s) => (
+      {(["present", "absent", "excused"] as AttendanceStatus[]).map((s) => (
         <span key={s} className="flex items-center gap-1.5">
           <span className={cx("inline-block size-3 rounded-[0.25rem]", STATUS_CELL[s])} />
           {STATUS_LABEL[s]}

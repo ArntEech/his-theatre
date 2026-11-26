@@ -4,7 +4,8 @@
  */
 import type { IsoDate, IsoDateTime } from "./types";
 
-export type AttendanceStatus = "present" | "late" | "excused" | "absent";
+/** "excused" is shown as "Absent with excuse": it doesn't count against them. */
+export type AttendanceStatus = "present" | "excused" | "absent";
 
 export interface Rehearsal {
   id: string;
@@ -41,10 +42,9 @@ export interface RehearsalDay extends Rehearsal {
 }
 
 export interface AttendanceSummary {
-  /** Present + late. */
+  /** Rehearsals they were present at. */
   attended: number;
   present: number;
-  late: number;
   excused: number;
   absent: number;
   /** Rehearsals that count towards the rate: past, taken, not excused. */
@@ -90,7 +90,6 @@ export interface AttendanceMarkInput {
 
 export interface AttendanceTotals {
   present: number;
-  late: number;
   excused: number;
   absent: number;
   changed: number;

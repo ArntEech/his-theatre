@@ -60,14 +60,14 @@ export function buildDays(
 }
 
 export function summarize(days: RehearsalDay[]): AttendanceSummary {
-  const counts = { present: 0, late: 0, excused: 0, absent: 0 };
+  const counts = { present: 0, excused: 0, absent: 0 };
   const sequence: AttendanceStatus[] = [];
   for (const d of days) {
     if (!d.forMe || d.isCancelled || !d.status || d.when === "upcoming") continue;
     counts[d.status] += 1;
     sequence.push(d.status);
   }
-  const attended = counts.present + counts.late;
+  const attended = counts.present;
   const counted = attended + counts.absent;
   let best = 0;
   let run = 0;
@@ -104,14 +104,13 @@ export function nextRehearsal(days: RehearsalDay[]): RehearsalDay | null {
 
 export const STATUS_LABEL: Record<AttendanceStatus, string> = {
   present: "Present",
-  late: "Late",
-  excused: "Excused",
   absent: "Absent",
+  excused: "Absent with excuse",
 };
 
-/** Tap order on the roll call: nothing → present → late → excused → absent → nothing. */
+/** Tap order on the roll call: nothing → present → absent → absent with excuse → nothing. */
 export function nextStatus(s: AttendanceStatus | null): AttendanceStatus | null {
-  const order: (AttendanceStatus | null)[] = [null, "present", "late", "excused", "absent"];
+  const order: (AttendanceStatus | null)[] = [null, "present", "absent", "excused"];
   return order[(order.indexOf(s) + 1) % order.length];
 }
 

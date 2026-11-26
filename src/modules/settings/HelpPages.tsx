@@ -61,9 +61,9 @@ const GUIDES: Record<GuideRole, Topic[]> = {
     {
       title: "Attendance",
       steps: [
-        "Rehearsals are every Tuesday and Thursday. Your drive head or an officer marks you Present, Late, Excused or Absent.",
+        "Rehearsals are every Tuesday and Thursday. Your drive head or an officer marks you Present, Absent, or Absent with excuse.",
         "Home shows this month's rehearsals and your streak. Attendance shows the calendar and your rate.",
-        "Can't make it? On Attendance, tap “I Can't Come” before the rehearsal and give a reason. If it's approved, it won't count against you.",
+        "Can't make it? On Attendance, tap “I Can't Come” before the rehearsal and give a reason. If it's approved you're marked Absent with excuse, which doesn't count against you.",
         "A mark looks wrong? Speak to your drive head or an officer. They can correct it until the end of that week.",
       ],
     },
@@ -114,7 +114,7 @@ const GUIDES: Record<GuideRole, Topic[]> = {
     {
       title: "Attendance and drive heads",
       steps: [
-        "Take attendance: Attendance → the clipboard at the top. Tap each name: Present, Late, Excused, Absent. Then Save.",
+        "Take attendance: Attendance → the clipboard at the top. Tap each name: Present, Absent, Absent with excuse. Then Save.",
         "No signal at the venue? Save on Phone. It's sent when you're back online.",
         "Drive heads mark on the day. Officers can correct until Sunday of that week; the Director any time.",
         "Admin → Attendance: excuse requests, who's missing a lot, everyone's rate, and adding or cancelling rehearsals. A cancelled rehearsal posts a notice on News.",

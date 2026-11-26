@@ -190,7 +190,7 @@ function Roll({ rehearsal, myDrives }: { rehearsal: Rehearsal; myDrives: string[
       (filter === "all" || forDrive.some((d) => p.drives.includes(d))) &&
       (!q || p.fullName.toLowerCase().includes(q) || p.memberCode.toLowerCase().includes(q)),
   );
-  const counts = { present: 0, late: 0, excused: 0, absent: 0, none: 0 };
+  const counts = { present: 0, excused: 0, absent: 0, none: 0 };
   for (const p of people) {
     const st = statusOf(p.memberId, p.status);
     counts[st ?? "none"] += 1;
@@ -219,7 +219,7 @@ function Roll({ rehearsal, myDrives }: { rehearsal: Rehearsal; myDrives: string[
     save.mutate([rehearsal.id, changes], {
       onSuccess: (r) => {
         setDraft(new Map());
-        flash(`Saved: ${r.present} present, ${r.late} late, ${r.excused} excused, ${r.absent} absent.`, "success");
+        flash(`Saved: ${r.present} present, ${r.absent} absent, ${r.excused} with excuse.`, "success");
       },
     });
   }
@@ -245,7 +245,7 @@ function Roll({ rehearsal, myDrives }: { rehearsal: Rehearsal; myDrives: string[
         <SearchField value={query} onChange={setQuery} placeholder="Search by name or ID" label="Search the roll" />
       </div>
       <p className="mb-2 px-1 text-footnote text-label-2">
-        Tap a name to mark: Present → Late → Excused → Absent → clear.
+        Tap a name to mark: Present → Absent → Absent with excuse → clear.
       </p>
 
       <ListSection
@@ -313,7 +313,7 @@ function Roll({ rehearsal, myDrives }: { rehearsal: Rehearsal; myDrives: string[
 
       <div className="sticky bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-10 mb-8 rounded-[1rem] bg-cell/95 p-3 shadow-[var(--shadow)] backdrop-blur md:bottom-4">
         <p className="mb-2 text-center text-footnote text-label-2 tnum">
-          {counts.present} present · {counts.late} late · {counts.excused} excused · {counts.absent} absent · {counts.none} not marked
+          {counts.present} present · {counts.absent} absent · {counts.excused} with excuse · {counts.none} not marked
         </p>
         <InlineError error={save.error ?? decide.error} />
         <div className="flex gap-2">
