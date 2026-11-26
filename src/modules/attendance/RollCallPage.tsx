@@ -9,7 +9,7 @@ import {
   useRehearsals,
   useRollCall,
 } from "@/data/queries";
-import type { AttendanceStatus, Rehearsal } from "@/data/community";
+import type { AttendanceAccess, AttendanceStatus, Rehearsal } from "@/data/community";
 import { PageHeader } from "@/components/PageHeader";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/Button";
@@ -18,7 +18,7 @@ import { ListItem, ListRow, ListSection } from "@/components/List";
 import { useFlash } from "@/components/Flash";
 import { ContentUnavailable, ErrorNotice, InlineError, LoadingBlock } from "@/components/States";
 import { addDays, formatDay } from "@/lib/dates";
-import { nextStatus } from "@/lib/attendance";
+import { markDeadline, nextStatus } from "@/lib/attendance";
 import { enqueue, pendingFor } from "@/lib/attendanceQueue";
 import { isOnline, useOnlineStatus } from "@/lib/online";
 import { cx } from "@/lib/cx";
@@ -38,13 +38,16 @@ export function RollCallPage() {
   const t = s?.today ?? "";
   const acc = access.data;
 
-  // Any rehearsal from the start of the semester up to today, like dues for past weeks.
-  // Drive heads see everyone's rehearsals plus their own drive's extras.
+  // Rehearsals up to today that are still open to this person: drive heads 3 days after,
+  // officers 7, the Director until the semester closes; older ones during the catch-up.
   const markable = useMemo(() => {
     if (!acc || !rehearsals.data) return [];
-    return rehearsals.data.filter(
-      (r) => !r.isCancelled && r.heldOn <= t && (!r.drive || acc.isOfficer || acc.ledDrives.includes(r.drive)),
-    );
+    return rehearsals.data.filter((r) => {
+      if (r.isCancelled || r.heldOn > t) return false;
+      if (r.drive && !acc.isOfficer && !acc.ledDrives.includes(r.drive)) return false;
+      const d = markDeadline(r.heldOn, acc);
+      return !d || t <= d;
+    });
   }, [acc, rehearsals.data, t]);
 
   const relevant = (r: Rehearsal) => !r.drive || acc?.isOfficer || acc?.ledDrives.includes(r.drive);
@@ -94,17 +97,27 @@ export function RollCallPage() {
                     {formatDay(r.heldOn)}
                     {r.drive ? ` · ${r.drive}` : ""}
                     {r.title ? ` · ${r.title}` : ""}
+                    {deadlineNote(r, acc, t)}
                   </option>
                 ))}
               </SelectField>
             </div>
           )}
           {selected && markable.some((r) => r.id === selected.id) ? (
-            <Roll key={selected.id} rehearsal={selected} myDrives={[...new Set([...acc.ledDrives, ...acc.myDrives])]} />
+            <>
+              {deadlineNote(selected, acc, t) && (
+                <p className="mb-3 px-1 text-footnote text-label-2">
+                  Open{deadlineNote(selected, acc, t)}. Drive heads have {acc.rules.headDays} days after a rehearsal and
+                  officers {acc.rules.officerDays}; rehearsals before the app started stay open until{" "}
+                  {acc.rules.catchUpUntil ? formatDay(acc.rules.catchUpUntil) : "the catch-up date"}.
+                </p>
+              )}
+              <Roll key={selected.id} rehearsal={selected} myDrives={[...new Set([...acc.ledDrives, ...acc.myDrives])]} />
+            </>
           ) : (
             <ContentUnavailable
-              title="Nothing to Mark Yet"
-              description="Rehearsals from the start of the semester up to today appear here. Add one if a rehearsal is happening."
+              title="Nothing to Mark"
+              description={`Rehearsals appear here on the day and stay open ${acc.isOfficer ? acc.rules.officerDays : acc.rules.headDays} days after. Add one if a rehearsal is happening.`}
             />
           )}
 
@@ -145,6 +158,13 @@ export function RollCallPage() {
       )}
     </>
   );
+}
+
+/** " · until Sun 29 Nov" or " · until today" (nothing for the Director). */
+function deadlineNote(r: Rehearsal, acc: AttendanceAccess, today: string): string {
+  const d = markDeadline(r.heldOn, acc);
+  if (!d) return "";
+  return d === today ? " · last day today" : ` · until ${formatDay(d)}`;
 }
 
 function driveNames(rs: Rehearsal[]) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Rehearsal } from "@/data/community";
-import { buildDays, drivesOf, missedInARow, nextRehearsal, nextStatus, summarize } from "./attendance";
+import { buildDays, drivesOf, markDeadline, missedInARow, nextRehearsal, nextStatus, summarize } from "./attendance";
+import { DEFAULT_ATTENDANCE_RULES as rules } from "@/data/community";
 
 const r = (id: string, heldOn: string, extra: Partial<Rehearsal> = {}): Rehearsal => ({
   id,
@@ -87,5 +88,12 @@ describe("attendance", () => {
     expect(nextStatus("present")).toBe("absent");
     expect(nextStatus("absent")).toBe("excused");
     expect(nextStatus("excused")).toBeNull();
+  });
+
+  it("gives drive heads 3 days, officers 7, the Director no deadline, and a catch-up for old weeks", () => {
+    expect(markDeadline("2026-12-01", { isDirector: false, isOfficer: false, rules })).toBe("2026-12-04");
+    expect(markDeadline("2026-12-01", { isDirector: false, isOfficer: true, rules })).toBe("2026-12-08");
+    expect(markDeadline("2026-12-01", { isDirector: true, isOfficer: true, rules })).toBeNull();
+    expect(markDeadline("2026-11-10", { isDirector: false, isOfficer: false, rules })).toBe("2026-12-06");
   });
 });

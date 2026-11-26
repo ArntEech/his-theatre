@@ -60,6 +60,7 @@ import {
 import { EMPTY_PROFILE } from "./types";
 import { createSeed, SEED_VERSION, type MockCommunity, type MockDb, type MockPost } from "./mock/seed";
 import {
+  DEFAULT_ATTENDANCE_RULES,
   NOTIFY_DEFAULTS,
   type AttendanceAccess,
   type AttendanceMarkInput,
@@ -81,7 +82,7 @@ import {
   type ReportedComment,
   type RollCallEntry,
 } from "./community";
-import { buildDays, drivesOf, missedInARow, nextRehearsal, summarize } from "@/lib/attendance";
+import { buildDays, drivesOf, markDeadline, missedInARow, nextRehearsal, summarize } from "@/lib/attendance";
 
 /* ------------------------------------------------------------------ */
 /* Mock plumbing                                                        */
@@ -1723,8 +1724,15 @@ function markProblem(me: Member, r: Rehearsal): string | null {
   if (findSemester(r.semesterId).isClosed) return "This semester is closed.";
   if (r.isCancelled) return "This rehearsal was cancelled.";
   if (r.heldOn > t) return "You can take attendance on the day of the rehearsal.";
-  if (isOfficerNow(me) || ledDrives(me).length) return null;
-  return "Only officers and drive heads take attendance.";
+  if (!isOfficerNow(me) && !ledDrives(me).length) return "Only officers and drive heads take attendance.";
+  const deadline = markDeadline(r.heldOn, {
+    isDirector: me.role === "super_admin" && hasOfficerPin(me),
+    isOfficer: isOfficerNow(me),
+    rules: DEFAULT_ATTENDANCE_RULES,
+  });
+  if (deadline && t > deadline)
+    return `Attendance for ${formatDay(r.heldOn)} closed on ${formatDay(deadline)}. Ask ${isOfficerNow(me) ? "the Director" : "an officer"} to change it.`;
+  return null;
 }
 
 /** On the roll for a rehearsal: dues started by that week, not left. */
@@ -1746,7 +1754,14 @@ export async function getAttendanceAccess(): Promise<AttendanceAccess> {
   const me = requireMember();
   const led = ledDrives(me);
   const isOfficer = isOfficerNow(me);
-  return { canTake: isOfficer || led.length > 0, isOfficer, ledDrives: led, myDrives: memberDrives(me) };
+  return {
+    canTake: isOfficer || led.length > 0,
+    isOfficer,
+    isDirector: me.role === "super_admin" && hasOfficerPin(me),
+    rules: DEFAULT_ATTENDANCE_RULES,
+    ledDrives: led,
+    myDrives: memberDrives(me),
+  };
 }
 
 export async function getMyAttendance(semesterId: string): Promise<MyAttendance> {

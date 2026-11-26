@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { BellRing } from "lucide-react";
 import { saveMySettings } from "@/data/api";
-import { useApiMutation, useCurrentMember, useMySettings } from "@/data/queries";
+import { useApiMutation, useAttendanceAccess, useCurrentMember, useMySettings } from "@/data/queries";
 import type { NotifyKind } from "@/data/community";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/Button";
@@ -14,12 +14,13 @@ import { ErrorNotice, InlineError, LoadingBlock } from "@/components/States";
 import { isAdmin } from "@/lib/roles";
 import { pushState, turnOffPush, turnOnPush, type PushState } from "@/lib/push";
 
-const KINDS: { kind: NotifyKind; title: string; subtitle: string; officers?: boolean }[] = [
+const KINDS: { kind: NotifyKind; title: string; subtitle: string; officers?: boolean; takers?: boolean }[] = [
   { kind: "news", title: "New Posts", subtitle: "When officers or your drive head post on News" },
   { kind: "comments", title: "Comments", subtitle: "Comments on your posts and replies to you" },
   { kind: "birthday", title: "Birthdays", subtitle: "Your birthday wishes, and others' birthdays" },
   { kind: "dues", title: "Dues Reminders", subtitle: "Once a week, only if you're behind" },
   { kind: "handovers", title: "Cash to Confirm", subtitle: "When an officer hands you cash", officers: true },
+  { kind: "attendance", title: "Attendance Reminders", subtitle: "The evening of a rehearsal, if you haven't taken attendance", takers: true },
 ];
 
 const STATE_TEXT: Record<PushState, string> = {
@@ -33,6 +34,7 @@ const STATE_TEXT: Record<PushState, string> = {
 export function NotificationsPage() {
   const { data: me } = useCurrentMember();
   const settings = useMySettings();
+  const access = useAttendanceAccess();
   const save = useApiMutation(saveMySettings);
   const flash = useFlash();
   const [state, setState] = useState<PushState | null>(null);
@@ -83,7 +85,7 @@ export function NotificationsPage() {
       {s && (
         <>
           <ListSection header="What You Get" footer="Urgent posts always come through, whatever you choose here.">
-            {KINDS.filter((k) => !k.officers || isAdmin(me)).map((k) => (
+            {KINDS.filter((k) => (!k.officers || isAdmin(me)) && (!k.takers || access.data?.canTake)).map((k) => (
               <ListRow
                 key={k.kind}
                 title={k.title}

@@ -75,6 +75,7 @@ import {
   type TodayReport,
 } from "./types";
 import {
+  DEFAULT_ATTENDANCE_RULES,
   NOTIFY_DEFAULTS,
   type AttendanceAccess,
   type AttendanceMarkInput,
@@ -1336,11 +1337,21 @@ async function attendanceOf(member: Member, semesterId: string): Promise<MyAtten
 export async function getAttendanceAccess(): Promise<AttendanceAccess> {
   const me = await getCurrentMember();
   if (!me) throw new ApiError("Please sign in again.", "unauthenticated");
-  const led = await run<string[] | null>(sb().rpc("my_led_drives"));
+  const [led, rules] = await Promise.all([
+    run<string[] | null>(sb().rpc("my_led_drives")),
+    run<Record<string, string> | null>(sb().rpc("attendance_rules")).catch(() => null),
+  ]);
   const isOfficer = isAdmin(me);
   return {
     canTake: isOfficer || (led ?? []).length > 0,
     isOfficer,
+    isDirector: me.role === "super_admin",
+    rules: {
+      headDays: Number(rules?.attendance_head_days ?? DEFAULT_ATTENDANCE_RULES.headDays),
+      officerDays: Number(rules?.attendance_officer_days ?? DEFAULT_ATTENDANCE_RULES.officerDays),
+      catchUpBefore: rules?.attendance_catchup_before ?? DEFAULT_ATTENDANCE_RULES.catchUpBefore,
+      catchUpUntil: rules?.attendance_catchup_until ?? DEFAULT_ATTENDANCE_RULES.catchUpUntil,
+    },
     ledDrives: led ?? [],
     myDrives: drivesOf(me.drive, me.profile.driveInterests),
   };

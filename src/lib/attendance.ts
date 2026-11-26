@@ -3,6 +3,7 @@
  * Pure functions: no dates from the clock, no data access.
  */
 import type {
+  AttendanceAccess,
   AttendanceStatus,
   AttendanceSummary,
   ExcuseRequest,
@@ -10,6 +11,7 @@ import type {
   RehearsalDay,
 } from "@/data/community";
 import type { IsoDate, IsoDateTime } from "@/data/types";
+import { addDays } from "@/lib/dates";
 
 export interface MemberWindow {
   /** The drives they belong to. */
@@ -116,4 +118,16 @@ export function nextStatus(s: AttendanceStatus | null): AttendanceStatus | null 
 
 export function percent(rate: number | null): string {
   return rate === null ? "–" : `${Math.round(rate * 100)}%`;
+}
+
+/**
+ * Last day this person may mark a rehearsal: drive heads 3 days after, officers 7, the Director
+ * until the semester closes (null). Rehearsals before the launch stay open until the catch-up date.
+ */
+export function markDeadline(heldOn: IsoDate, access: Pick<AttendanceAccess, "isDirector" | "isOfficer" | "rules">): IsoDate | null {
+  if (access.isDirector) return null;
+  const { rules } = access;
+  let d = addDays(heldOn, access.isOfficer ? rules.officerDays : rules.headDays);
+  if (rules.catchUpBefore && rules.catchUpUntil && heldOn < rules.catchUpBefore && rules.catchUpUntil > d) d = rules.catchUpUntil;
+  return d;
 }

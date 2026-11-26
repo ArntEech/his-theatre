@@ -64,7 +64,7 @@ const GUIDES: Record<GuideRole, Topic[]> = {
         "Rehearsals are every Tuesday and Thursday. Your drive head or an officer marks you Present, Absent, or Absent with excuse.",
         "Home shows this month's rehearsals and your streak. Attendance shows the calendar and your rate.",
         "Can't make it? On Attendance, tap “I Can't Come” before the rehearsal and give a reason. If it's approved you're marked Absent with excuse, which doesn't count against you.",
-        "A mark looks wrong? Speak to your drive head or an officer. They can correct it any time this semester.",
+        "A mark looks wrong? Speak to your drive head or an officer. Drive heads can correct it for 3 days after the rehearsal, officers for 7.",
       ],
     },
     {
@@ -116,7 +116,8 @@ const GUIDES: Record<GuideRole, Topic[]> = {
       steps: [
         "Take attendance: Attendance → the clipboard at the top. Tap each name: Present, Absent, Absent with excuse. Then Save.",
         "No signal at the venue? Save on Phone. It's sent when you're back online.",
-        "Drive heads and officers can mark today's rehearsal or fill in any earlier one this semester, from the week dues started. Each member is on the roll from their own dues start week.",
+        "Forgot? Drive heads have 3 days after a rehearsal to mark it or add people; officers 7; the Director any time while the semester is open. Rehearsals before the app started stay open until 6 December. A reminder comes the evening of a rehearsal if you haven't taken it.",
+        "Each member is on the roll from the week their dues start.",
         "Admin → Attendance: excuse requests, who's missing a lot, everyone's rate, and adding or cancelling rehearsals. A cancelled rehearsal posts a notice on News.",
         "The Director chooses drive heads in Admin → Attendance → Drive Heads.",
       ],
