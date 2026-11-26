@@ -1,8 +1,11 @@
 -- His Theatre: attendance works like dues.
 --   * Marks are Present, Absent, or Absent with excuse ("excused"). No "Late".
---   * Officers and drive heads can mark any rehearsal from the start of the semester up to
---     today, while the semester is open (like recording dues for past weeks).
---   * Each member is on the roll only from the week their dues start.
+--   * Each member is on the roll only from the week their dues start (like dues).
+--   * Grace period after each rehearsal: drive heads 3 days, officers 7 days, the Director
+--     until the semester closes. Rehearsals before the app's launch can be filled in by
+--     drive heads and officers until the catch-up date (6 Dec 2026).
+--   * The evening of a rehearsal, drive heads and officers who haven't taken attendance get
+--     a reminder with their deadline.
 -- Run once, after 0009_push_keys.sql.
 
 alter table public.attendance drop constraint if exists attendance_no_late;
@@ -60,14 +63,47 @@ begin
   return totals || jsonb_build_object('changed', changed);
 end $$;
 
+insert into private.settings values
+  ('attendance_head_days', '3'), ('attendance_officer_days', '7'),
+  ('attendance_catchup_before', '2026-11-26'), ('attendance_catchup_until', '2026-12-06')
+on conflict (key) do nothing;
+
+-- The rules the app shows: grace days and the one-off catch-up.
+create or replace function public.attendance_rules()
+returns jsonb language sql stable security definer set search_path = '' as $$
+  select jsonb_object_agg(key, value) from private.settings where key like 'attendance_%'
+$$;
+
+-- Last day this person may mark this rehearsal (null: until the semester closes).
+create or replace function private.mark_deadline(r public.rehearsals)
+returns date language plpgsql stable security definer set search_path = '' as $$
+declare
+  head_days int := coalesce((select value::int from private.settings where key = 'attendance_head_days'), 3);
+  officer_days int := coalesce((select value::int from private.settings where key = 'attendance_officer_days'), 7);
+  before date := (select value::date from private.settings where key = 'attendance_catchup_before');
+  until date := (select value::date from private.settings where key = 'attendance_catchup_until');
+  d date;
+begin
+  if public.is_super_admin() then return null; end if;
+  d := r.held_on + case when public.is_admin() then officer_days else head_days end;
+  if before is not null and r.held_on < before then d := greatest(d, until); end if;
+  return d;
+end $$;
+
 create or replace function private.mark_problem(r public.rehearsals)
 returns text language plpgsql stable security definer set search_path = '' as $$
+declare d date;
 begin
   if (select is_closed from public.semesters where id = r.semester_id) then return 'This semester is closed.'; end if;
   if r.is_cancelled then return 'This rehearsal was cancelled.'; end if;
   if r.held_on > private.today() then return 'You can take attendance on the day of the rehearsal.'; end if;
-  if public.can_take_attendance() then return null; end if;
-  return 'Only officers and drive heads take attendance.';
+  if not public.can_take_attendance() then return 'Only officers and drive heads take attendance.'; end if;
+  d := private.mark_deadline(r);
+  if d is not null and private.today() > d then
+    return format('Attendance for %s closed on %s. Ask %s to change it.', private.day_label(r.held_on), private.day_label(d),
+                  case when public.is_admin() then 'the Director' else 'an officer' end);
+  end if;
+  return null;
 end $$;
 
 -- On the roll for a rehearsal: members whose dues had started by that week, who hadn't left.
@@ -103,4 +139,37 @@ begin
     order by m.full_name;
 end $$;
 
-revoke all on function private.on_roll(uuid, public.rehearsals) from public, anon, authenticated;
+-- Evening reminder: drive heads and officers who haven't taken attendance for today's rehearsal.
+create or replace function private.attendance_reminders()
+returns void language plpgsql security definer set search_path = '' as $$
+declare
+  r public.rehearsals; h record; t date := private.today();
+  head_days int := coalesce((select value::int from private.settings where key = 'attendance_head_days'), 3);
+begin
+  for r in select * from public.rehearsals where held_on = t and not is_cancelled loop
+    if (select is_closed from public.semesters where id = r.semester_id) then continue; end if;
+    -- Each drive head whose drive has nobody marked yet.
+    for h in
+      select dh.member_id, dh.drive from public.drive_heads dh join public.members m on m.id = dh.member_id
+      where m.is_active and (r.drive is null or r.drive = dh.drive)
+        and not exists (select 1 from public.attendance a where a.rehearsal_id = r.id
+                        and dh.drive = any (private.member_drives(a.member_id)))
+    loop
+      perform private.notify(array[h.member_id], 'attendance', 'Attendance not taken',
+        format('You haven''t taken attendance for %s (%s). You have until %s.', private.day_label(t), h.drive,
+               private.day_label(t + head_days)),
+        '/attendance/take');
+    end loop;
+  end loop;
+end $$;
+
+do $$
+begin
+  perform cron.schedule('his-attendance-reminders', '3 21 * * *', 'select private.attendance_reminders()');
+exception when others then raise notice 'pg_cron not available here; schedule not set.';
+end $$;
+
+revoke all on function private.on_roll(uuid, public.rehearsals), private.mark_deadline(public.rehearsals),
+  private.attendance_reminders() from public, anon, authenticated;
+revoke all on function public.attendance_rules() from public, anon;
+grant execute on function public.attendance_rules() to authenticated;

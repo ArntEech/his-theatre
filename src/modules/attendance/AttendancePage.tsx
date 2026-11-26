@@ -119,7 +119,7 @@ export function AttendancePage() {
           <ListRow
             leading={<IconTile icon={ClipboardCheck} color="gold" />}
             title="Take Attendance"
-            subtitle="Today, or any earlier rehearsal this semester"
+            subtitle={access.data.isOfficer ? "Today, or up to 7 days back" : "Today, or up to 3 days back"}
             to="/attendance/take"
           />
           {access.data.isOfficer && (
@@ -203,7 +203,7 @@ function DaySheet({
           )}
           {day.status === "absent" && (
             <p className="px-1 text-footnote text-label-2">
-              Think this is wrong? Speak to your drive head or an officer. They can correct it any time this semester.
+              Think this is wrong? Speak to your drive head or an officer. Drive heads can correct it for 3 days after the rehearsal, officers for 7.
             </p>
           )}
           {day.when !== "past" && !day.isCancelled && day.forMe && (!day.excuse || day.excuse.status === "pending") && (

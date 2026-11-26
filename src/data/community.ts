@@ -63,10 +63,28 @@ export interface MyAttendance {
   next: RehearsalDay | null;
 }
 
+/** How long after a rehearsal it can still be marked. */
+export interface AttendanceRules {
+  headDays: number;
+  officerDays: number;
+  /** Rehearsals before this date (the app's launch) stay open until catchUpUntil. */
+  catchUpBefore: IsoDate | null;
+  catchUpUntil: IsoDate | null;
+}
+
+export const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
+  headDays: 3,
+  officerDays: 7,
+  catchUpBefore: "2026-11-26",
+  catchUpUntil: "2026-12-06",
+};
+
 export interface AttendanceAccess {
   /** Officer (6-digit PIN) or drive head. */
   canTake: boolean;
   isOfficer: boolean;
+  isDirector: boolean;
+  rules: AttendanceRules;
   ledDrives: string[];
   /** The drives this person belongs to. */
   myDrives: string[];
@@ -221,7 +239,7 @@ export interface NewsAccess {
 /* Settings and notifications                                           */
 /* ------------------------------------------------------------------ */
 
-export type NotifyKind = "news" | "comments" | "birthday" | "dues" | "handovers";
+export type NotifyKind = "news" | "comments" | "birthday" | "dues" | "handovers" | "attendance";
 
 export interface MySettings {
   birthdayPost: boolean;
@@ -233,6 +251,7 @@ export const NOTIFY_DEFAULTS: Record<NotifyKind, boolean> = {
   comments: true,
   birthday: true,
   dues: true,
+  attendance: true,
   handovers: true,
 };
 
