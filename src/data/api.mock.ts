@@ -1598,7 +1598,7 @@ function seedCommunity(c: MockCommunity) {
   if (sem) {
     db.community = c;
     syncRehearsals(sem.id);
-    // Past rehearsals: most people came, a few were late or away.
+    // Past rehearsals: most people came, a few were away (some with an excuse).
     const roll = db.memberSemesters.filter((ms) => ms.semesterId === sem.id);
     const marker = byCode("HIS-002")?.id ?? db.members[0].id;
     c.rehearsals
@@ -1610,7 +1610,7 @@ function seedCommunity(c: MockCommunity) {
           if (!m || (m.leftOn && r.heldOn > m.leftOn)) return;
           const n = (ri * 7 + mi * 13) % 20;
           if (n >= 17) return; // not ticked: counts as absent
-          const status = n === 16 ? "excused" : n >= 14 ? "late" : "present";
+          const status = n >= 15 ? "excused" : "present";
           c.attendance.push({ rehearsalId: r.id, memberId: m.id, status, markedBy: marker, markedAt: `${r.heldOn}T17:30:00.000Z` });
         });
       });
@@ -1825,7 +1825,6 @@ export async function markAttendance(rehearsalId: string, marks: AttendanceMarkI
   r.rollTaken = rows.length > 0;
   const totals = {
     present: rows.filter((a) => a.status === "present").length,
-    late: rows.filter((a) => a.status === "late").length,
     excused: rows.filter((a) => a.status === "excused").length,
     absent: rows.filter((a) => a.status === "absent").length,
     changed,
@@ -1835,7 +1834,7 @@ export async function markAttendance(rehearsalId: string, marks: AttendanceMarkI
       me,
       "insert",
       "attendance",
-      `took attendance for ${formatDay(r.heldOn)}${r.drive ? ` (${r.drive})` : ""}: ${totals.present} present, ${totals.late} late, ${totals.excused} excused, ${totals.absent} absent`,
+      `took attendance for ${formatDay(r.heldOn)}${r.drive ? ` (${r.drive})` : ""}: ${totals.present} present, ${totals.absent} absent, ${totals.excused} absent with excuse`,
     );
   persist();
   return totals;

@@ -23,12 +23,12 @@ describe("attendance", () => {
     expect(drivesOf("Tribe of Judah", "Divine Pulse, Tribe of Judah ,")).toEqual(["Divine Pulse", "Tribe of Judah"]);
   });
 
-  it("counts present and late as attended; excused doesn't count against you", () => {
+  it("counts present; an absence with excuse doesn't count against you", () => {
     const days = buildDays(
       [r("a", "2026-11-10"), r("b", "2026-11-12"), r("c", "2026-11-17"), r("d", "2026-11-19")],
       new Map([
         ["a", { status: "present" as const, markedAt: null }],
-        ["b", { status: "late" as const, markedAt: null }],
+        ["b", { status: "present" as const, markedAt: null }],
         ["c", { status: "excused" as const, markedAt: null }],
       ]),
       new Map(),
@@ -84,6 +84,8 @@ describe("attendance", () => {
     const days = buildDays([r("a", "2026-11-17"), r("b", "2026-11-26", { rollTaken: false })], new Map(), new Map(), w, today);
     expect(nextRehearsal(days)?.id).toBe("b");
     expect(nextStatus(null)).toBe("present");
-    expect(nextStatus("absent")).toBeNull();
+    expect(nextStatus("present")).toBe("absent");
+    expect(nextStatus("absent")).toBe("excused");
+    expect(nextStatus("excused")).toBeNull();
   });
 });

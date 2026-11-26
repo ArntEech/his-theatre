@@ -721,7 +721,7 @@ function MemberAttendanceSection({ memberId, semesterId, today }: { memberId: st
       padded
       header="Attendance"
       aside={<span className="text-subhead text-label-2 tnum">{percent(s.rate)}</span>}
-      footer={`${s.attended} of ${s.counted} rehearsals · ${s.late} late · ${s.excused} excused · streak ${s.streak}. Correct a mark from Take Attendance.`}
+      footer={`${s.attended} of ${s.counted} rehearsals · ${s.excused} absent with excuse · streak ${s.streak}. Correct a mark from Take Attendance.`}
     >
       <AttendanceCalendar days={a.data.days} today={today} />
       <Legend />
